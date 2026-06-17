@@ -193,6 +193,41 @@ function Initialize-Setup {
     Write-Host "  Admin: $(if (Test-IsAdmin) { 'Yes' } else { 'No (will request)' })"
     Write-Host ""
 }
+# ============================================================
+# Compiler and Dependency Setup
+# ============================================================
+function Import-VSEnvironment {
+    # The exact path to your standalone Build Tools installation
+    $vcvars = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+    
+    # Fallback to vswhere (looking for ALL products, including Build Tools) if the hardcoded path changes
+    if (-Not (Test-Path $vcvars)) {
+        $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path $vswhere) {
+            $vsPath = & $vswhere -products * -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if ($vsPath) {
+                $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+            }
+        }
+    }
+
+    if (-Not $vcvars -or -Not (Test-Path $vcvars)) { 
+        return $false 
+    }
+
+    Write-Log "Loading Visual Studio Build Tools Environment into PowerShell..." -Type Info
+    
+    # Execute the batch file silently, then run 'set' to output all environment variables
+    $cmd = "`"$vcvars`" >NUL && set"
+    
+    # Parse the output and inject it into the current PowerShell process
+    cmd.exe /c $cmd | ForEach-Object {
+        if ($_ -match "^([^=]+)=(.*)$") {
+            [Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
+    return $true
+}
 
 function Install-CoreDependencies {
     Write-Log "========================================" -Type Highlight
@@ -211,24 +246,62 @@ function Install-CoreDependencies {
     }
     Write-Host ""
     
-    # Visual Studio 2022 Community
-    Write-Log "Checking Visual Studio 2022 Community..." -Type Info
-    if (Test-CommandExists "cl") {
-        Write-Log "Visual Studio C++ compiler already installed" -Type Success
+# Visual Studio C++ Build Tools
+Write-Log "Checking for Visual Studio C++ Compiler..." -Type Info
+
+# Attempt to load the environment first using our helper function
+$envLoaded = Import-VSEnvironment
+
+if ($envLoaded -and (Test-CommandExists "cl")) {
+    Write-Log "Visual Studio C++ compiler is already installed and loaded." -Type Success
+}
+else {
+    Write-Log "C++ Compiler not found. Initiating automated download and installation..." -Type Highlight
+    
+    # Define paths and the official Microsoft aka.ms permalink for Build Tools
+    $installerPath = Join-Path $env:TEMP "vs_buildtools.exe"
+    $downloadUrl = "https://aka.ms/vs/17/release/vs_buildtools.exe"
+    
+    Write-Log "Downloading VS 2022 Build Tools bootstrapper..." -Type Info
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+    
+    Write-Log "Installing C++ workloads silently (This will take several minutes)..." -Type Warning
+    
+    # Command line arguments for a silent, unattended installation with specific workloads
+    $installArgs = @(
+        "--quiet",
+        "--wait",
+        "--norestart",
+        "--add", "Microsoft.VisualStudio.Workload.VCTools",
+        "--add", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+        "--add", "Microsoft.VisualStudio.Component.VC.CMake.Project",
+        "--includeRecommended"
+    )
+    
+    # Execute the installer and wait for it to finish
+    $process = Start-Process -FilePath $installerPath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
+    
+    # Exit codes: 0 is success, 3010 is success but requires a reboot
+    if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
+        Write-Log "Visual Studio Build Tools installed successfully." -Type Success
+        
+        if ($process.ExitCode -eq 3010) {
+            Write-Log "Note: A system reboot may be required later to finalize all components." -Type Warning
+        }
+        
+        # Load the newly installed environment variables into the current session
+        Import-VSEnvironment | Out-Null
     }
     else {
-        Write-Log "Visual Studio 2022 Community is required and will open the installer." -Type Highlight
-        Write-Log "During installation, ensure you select:" -Type Info
-        Write-Host "  1. 'Desktop development with C++' workload"
-        Write-Host "  2. 'C++ Clang tools for Windows' (under Individual components)"
-        Write-Host "  3. 'CMake tools for Windows' (optional but recommended)"
-        Write-Host ""
-        
-        Install-FromWinget "Microsoft.VisualStudio.2022.Community" "Visual Studio 2022 Community"
-        
-        Write-Log "Please complete the Visual Studio installation and run this script again." -Type Warning
+        Write-Log "Visual Studio installation failed with exit code: $($process.ExitCode)" -Type Error
+        Write-Log "You may need to run the installer manually from $installerPath" -Type Error
         exit 1
     }
+    
+    # Clean up the bootstrapper executable
+    Remove-Item -Path $installerPath -Force -ErrorAction SilentlyContinue
+}
+Write-Host ""
     Write-Host ""
     
     # CMake
