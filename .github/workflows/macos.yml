@@ -31,7 +31,7 @@ jobs:
     if:      github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: false
 
@@ -70,7 +70,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: false
 
@@ -78,7 +78,7 @@ jobs:
         uses: ./.github/actions/set-common-vars
 
       - name: Set up CMake
-        uses: lukka/get-cmake@591817e96fcad43505fb4eae36172462abb3a42e # v4.3.3
+        uses: lukka/get-cmake@f5b8fbb4d77cec1acc5a5f9f0df4beffaf5d98d9 # v4.3.4
 
       - name: Set up vcpkg
         uses: ./.github/actions/setup-vcpkg
@@ -142,7 +142,7 @@ jobs:
     runs-on: macos-26
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: false
 
