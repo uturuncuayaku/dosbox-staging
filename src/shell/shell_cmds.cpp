@@ -23,6 +23,7 @@
 #include "cpu/paging.h"
 #include "cpu/registers.h"
 #include "dos/dos.h"
+#include "dos/dos_append.h"
 #include "dos/drives.h"
 #include "dos/programs/more_output.h"
 #include "hardware/pic.h"
@@ -37,9 +38,11 @@
 
 // clang-format off
 static const std::map<std::string, SHELL_Cmd> shell_cmds = {
+	{ "APPEND",   {&DOS_Shell::CMD_APPEND,   "APPEND",   HELP_Filter::All,    HELP_Category::Misc } },
 	{ "CALL",     {&DOS_Shell::CMD_CALL,     "CALL",     HELP_Filter::All,    HELP_Category::Batch } },
 	{ "CD",       {&DOS_Shell::CMD_CHDIR,    "CHDIR",    HELP_Filter::Common, HELP_Category::File } },
 	{ "CHDIR",    {&DOS_Shell::CMD_CHDIR,    "CHDIR",    HELP_Filter::All,    HELP_Category::File } },
+	{ "JOIN",     {&DOS_Shell::CMD_JOIN,     "JOIN",     HELP_Filter::All,    HELP_Category::Misc } },
 	{ "CLS",      {&DOS_Shell::CMD_CLS,      "CLS",      HELP_Filter::Common, HELP_Category::Misc} },
 	{ "COPY",     {&DOS_Shell::CMD_COPY,     "COPY",     HELP_Filter::Common, HELP_Category::File} },
 	{ "DATE",     {&DOS_Shell::CMD_DATE,     "DATE",     HELP_Filter::All,    HELP_Category::Misc } },
@@ -2732,4 +2735,52 @@ void DOS_Shell::CMD_FOR(char* args)
 		cmd_array[CMD_MAXLINE - 1] = '\0';
 		ParseLine(cmd_array);
 	}
+}
+
+void DOS_Shell::CMD_APPEND(char* args) {
+	HELP("APPEND");
+	StripSpaces(args);
+
+	if (!args || std::strlen(args) == 0) {
+		if (DOS_Append::IsActive()) {
+			WriteOut("APPEND paths:\n");
+			for (const auto& path : DOS_Append::GetPaths()) {
+				WriteOut("%s\n", path.c_str());
+			}
+		} else {
+			WriteOut("APPEND is not configured.\n");
+		}
+		return;
+	}
+
+	std::string args_str(args);
+
+	if (args_str == "/x" || args_str == "/X" || args_str == "/e" || args_str == "/E") {
+		return;
+	}
+
+	if (args_str == ";") {
+		DOS_Append::Clear();
+		return;
+	}
+
+	DOS_Append::SetPaths(args_str);
+}
+
+void DOS_Shell::CMD_JOIN(char* args) {
+	HELP("JOIN");
+	StripSpaces(args);
+
+	if (!args || std::strlen(args) == 0) {
+		WriteOut("No drives currently joined.\n");
+		return;
+	}
+
+	std::string args_str(args);
+
+	if (args_str.find("/d") != std::string::npos || args_str.find("/D") != std::string::npos) {
+		return;
+	}
+
+	return;
 }

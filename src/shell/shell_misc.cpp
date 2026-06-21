@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "shell/shell.h"
+#include "dos/dos_append.h"
 
 #include <algorithm>
 #include <cstring>
@@ -551,6 +552,17 @@ std::string DOS_Shell::ResolvePath(const std::string_view name) const
 		prefixes.insert(prefixes.end(), //-V823
 		                std::make_move_iterator(path_directories.begin()),
 		                std::make_move_iterator(path_directories.end()));
+	}
+
+	if (DOS_Append::IsActive()) {
+		for (auto directory : DOS_Append::GetPaths()) {
+			if (!directory.empty()) {
+				if (directory.back() != '\\') {
+					directory += '\\';
+				}
+				prefixes.push_back(directory);
+			}
+		}
 	}
 
 	const bool has_extension = !get_executable_extension(name).empty();
