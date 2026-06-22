@@ -24,7 +24,9 @@ namespace DOS_Append {
                     trimmed_path.pop_back();
                 }
                 
-                search_paths.push_back(trimmed_path);
+                if (!trimmed_path.empty()) {
+                    search_paths.push_back(trimmed_path);
+                }
             }
         }
     }
