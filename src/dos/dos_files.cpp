@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "dos.h"
+#include "dos_append.h"
 
 #include <array>
 #include <cctype>
@@ -617,6 +618,70 @@ bool DOS_FindFirst(const char* search, FatAttributeFlags attr, bool fcb_findfirs
 		return true;
 	}
 
+	// --- APPEND FALLBACK ---
+	if (DOS_Append::IsActive()) {
+		for (const auto& append_dir : DOS_Append::GetPaths()) {
+			char try_fullsearch[DOS_PATHLENGTH];
+			uint8_t try_drive;
+			std::string new_search = append_dir + "\\" + search;
+			
+			if (DOS_MakeName(new_search.c_str(), try_fullsearch, &try_drive)) {
+				char try_dir[DOS_PATHLENGTH];
+				char try_pattern[DOS_PATHLENGTH];
+				char* find_last = strrchr(try_fullsearch, '\\');
+				if (!find_last) {
+					safe_strcpy(try_pattern, try_fullsearch);
+					try_dir[0] = 0;
+				} else {
+					*find_last = 0;
+					safe_strcpy(try_pattern, find_last + 1);
+					safe_strcpy(try_dir, try_fullsearch);
+				}
+
+				dta.SetupSearch(try_drive, attr, try_pattern);
+				if (Drives.at(try_drive)->FindFirst(try_dir, dta, fcb_findfirst)) {
+					return true;
+				}
+			}
+		}
+	}
+	// --- END APPEND FALLBACK ---
+
+	// --- REDIRECT BUILT-IN FILE EXISTENCE CHECKS ---
+	std::string search_str(search);
+	std::transform(search_str.begin(), search_str.end(), search_str.begin(), ::toupper);
+	std::string redirect_search = "";
+	if (search_str.rfind("APPEND.EXE") != std::string::npos || search_str.rfind("APPEND.COM") != std::string::npos) {
+		redirect_search = "Z:\\APPEND.EXE";
+	} else if (search_str.rfind("SUBST.EXE") != std::string::npos || search_str.rfind("SUBST.COM") != std::string::npos) {
+		redirect_search = "Z:\\SUBST.EXE";
+	} else if (search_str.rfind("JOIN.EXE") != std::string::npos || search_str.rfind("JOIN.COM") != std::string::npos) {
+		redirect_search = "Z:\\JOIN.EXE";
+	}
+
+	if (!redirect_search.empty()) {
+		char try_fullsearch[DOS_PATHLENGTH];
+		uint8_t try_drive;
+		if (DOS_MakeName(redirect_search.c_str(), try_fullsearch, &try_drive)) {
+			char try_dir[DOS_PATHLENGTH];
+			char try_pattern[DOS_PATHLENGTH];
+			char* find_last = strrchr(try_fullsearch, '\\');
+			if (!find_last) {
+				safe_strcpy(try_pattern, try_fullsearch);
+				try_dir[0] = 0;
+			} else {
+				*find_last = 0;
+				safe_strcpy(try_pattern, find_last + 1);
+				safe_strcpy(try_dir, try_fullsearch);
+			}
+			dta.SetupSearch(try_drive, attr, try_pattern);
+			if (Drives.at(try_drive)->FindFirst(try_dir, dta, fcb_findfirst)) {
+				return true;
+			}
+		}
+	}
+	// --- END REDIRECT BUILT-IN FILE EXISTENCE CHECKS ---
+
 	return false;
 }
 
@@ -878,6 +943,27 @@ bool DOS_OpenFile(const char* name, uint8_t flags, uint16_t* entry, bool fcb)
 		const auto old_errorcode = dos.errorcode;
 		dos.errorcode = 0;
 		Files[handle] = Drives.at(drive)->FileOpen(fullname, flags);
+
+		if (!Files[handle]) {
+			// --- APPEND FALLBACK ---
+			if (DOS_Append::IsActive()) {
+				for (const auto& append_dir : DOS_Append::GetPaths()) {
+					char try_fullname[DOS_PATHLENGTH];
+					uint8_t try_drive;
+					
+					std::string new_name = append_dir + "\\" + name;
+					
+					if (DOS_MakeName(new_name.c_str(), try_fullname, &try_drive)) {
+						Files[handle] = Drives.at(try_drive)->FileOpen(try_fullname, flags);
+						if (Files[handle]) {
+							drive = try_drive; // Success! Update the drive reference
+							break; // Stop searching
+						}
+					}
+				}
+			}
+		}
+
 		if (Files[handle]) {
 			Files[handle]->SetDrive(drive);
 		}
