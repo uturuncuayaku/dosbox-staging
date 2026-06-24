@@ -3,6 +3,8 @@ permissions: read-all
 
 on:
   push:
+    branches-ignore:
+      - feature-append
     paths-ignore:
       - '.clang-format'
       - '.mdl-styles'
