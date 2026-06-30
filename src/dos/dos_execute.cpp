@@ -6,8 +6,6 @@
 
 #include <cctype>
 #include <cstring>
-#include <algorithm>
-#include <string>
 
 #include "cpu/callback.h"
 #include "cpu/cpu.h"
@@ -15,7 +13,6 @@
 #include "cpu/registers.h"
 #include "debugger/debugger.h"
 #include "dos.h"
-#include "dos_append.h"
 #include "dos/programs.h"
 #include "gui/titlebar.h"
 #include "hardware/memory.h"
@@ -307,52 +304,9 @@ bool DOS_Execute(char * name,PhysPt block_pt,uint8_t flags) {
 	}
 	/* Check for EXE or COM File */
 	bool iscom=false;
-	LOG_MSG("DOS_Execute: Attempting to execute '%s'", name);
 	if (!DOS_OpenFile(name,OPEN_READ,&fhandle)) {
-		// --- REDIRECT BUILT-IN EXEC ---
-		std::string name_str(name);
-		std::transform(name_str.begin(), name_str.end(), name_str.begin(), ::toupper);
-		
-		std::string redirect_name = "";
-		if (name_str.rfind("APPEND") != std::string::npos) {
-			redirect_name = "Z:\\APPEND.EXE";
-		} else if (name_str.rfind("SUBST") != std::string::npos) {
-			redirect_name = "Z:\\SUBST.EXE";
-		} else if (name_str.rfind("JOIN") != std::string::npos) {
-			redirect_name = "Z:\\JOIN.EXE";
-		}
-		
-		if (!redirect_name.empty() && DOS_OpenFile(redirect_name.c_str(), OPEN_READ, &fhandle)) {
-			static std::string static_name;
-			static_name = redirect_name;
-			name = const_cast<char*>(static_name.c_str());
-			LOG_MSG("DOS_Execute: Redirected built-in utility to '%s'", name);
-		} else if (DOS_Append::IsActive()) {
-			bool found_append = false;
-			for (const auto& append_dir : DOS_Append::GetPaths()) {
-				std::string try_name = append_dir + "\\" + name;
-				if (DOS_OpenFile(try_name.c_str(), OPEN_READ, &fhandle)) {
-					static std::string static_try_name;
-					static_try_name = try_name;
-					name = const_cast<char*>(static_try_name.c_str());
-					LOG_MSG("DOS_Execute: Found in APPEND path, executing '%s'", name);
-					found_append = true;
-					break;
-				}
-			}
-			if (!found_append) {
-				LOG_MSG("DOS_Execute: Failed to find '%s' in APPEND paths", name);
-				DOS_SetError(DOSERR_FILE_NOT_FOUND);
-				return false;
-			}
-		} else {
-			LOG_MSG("DOS_Execute: Failed to find '%s'", name);
-			DOS_SetError(DOSERR_FILE_NOT_FOUND);
-			return false;
-		}
-		// --- END REDIRECT BUILT-IN EXEC ---
-	} else {
-		LOG_MSG("DOS_Execute: Executing '%s' from current directory", name);
+		DOS_SetError(DOSERR_FILE_NOT_FOUND);
+		return false;
 	}
 	len=sizeof(EXE_Header);
 	if (!DOS_ReadFile(fhandle,(uint8_t *)&head,&len)) {
