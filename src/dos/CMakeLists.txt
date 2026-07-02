@@ -12,8 +12,8 @@ endif()
 target_sources(dosboxcommon PRIVATE
   cdrom.cpp
   cdrom_image.cpp
-  dos_append.cpp
   dos.cpp
+  dos_append.cpp
   dos_classes.cpp
   dos_code_page.cpp
   dos_devices.cpp
@@ -67,7 +67,6 @@ target_sources(dosboxcommon PRIVATE
   programs/showpic.cpp
   programs/subst.cpp
   programs/append.cpp
-  programs/join.cpp
   programs/tree.cpp
 )
 

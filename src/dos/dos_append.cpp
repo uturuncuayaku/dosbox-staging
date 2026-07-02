@@ -1,63 +1,42 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 #include "dos_append.h"
-#include <sstream>
-#include <algorithm>
-#include <cstdarg>
-#include <cstdio>
+#include "dos.h"
+#include "utils/string_utils.h"
 
 namespace DOS_Append {
-    static std::vector<std::string> search_paths;
 
-    void SetPaths(const std::string& path_string) {
-        Clear();
-        
-        std::stringstream ss(path_string);
-        std::string item;
-        
-        while (std::getline(ss, item, ';')) {
-            size_t start = item.find_first_not_of(" \t\r\n");
-            size_t end = item.find_last_not_of(" \t\r\n");
-            
-            if (start != std::string::npos && end != std::string::npos) {
-                std::string trimmed_path = item.substr(start, end - start + 1);
-                
-                if (!trimmed_path.empty() && trimmed_path.back() == '\\') {
-                    trimmed_path.pop_back();
-                }
-                
-                if (!trimmed_path.empty()) {
-                    search_paths.push_back(trimmed_path);
-                }
-            }
-        }
-    }
+	static bool exec_mode_enabled = false;
 
-    void Clear() {
-        search_paths.clear();
-    }
+	void SetPaths(const std::string& path_string) {
+		dos.append_paths.clear();
+		
+		std::vector<std::string> items = split_with_empties(path_string, ';');
+		remove_empties(items);
 
-    bool IsActive() {
-        return !search_paths.empty();
-    }
+		for (auto& item : items) {
+			trim(item);
+			
+			if (!item.empty()) {
+				dos.append_paths.push_back(item);
+			}
+		}
+	}
 
-    const std::vector<std::string>& GetPaths() {
-        return search_paths;
-    }
+	bool IsActive() {
+		return !dos.append_paths.empty();
+	}
 
-    void LogToFile(const char* format, ...) {
-        va_list args;
-        va_start(args, format);
-        std::vfprintf(stderr, format, args);
-        std::fprintf(stderr, "\n");
-        std::fflush(stderr);
-        va_end(args);
+	std::vector<std::string> GetPaths() {
+		return dos.append_paths;
+	}
 
-        va_start(args, format);
-        std::FILE* f = std::fopen("c:\\Users\\andtr\\Documents\\GitHub\\antigravity_V2_dosbos-staging\\dosbox_run.log", "a");
-        if (f) {
-            std::vfprintf(f, format, args);
-            std::fprintf(f, "\n");
-            std::fclose(f);
-        }
-        va_end(args);
-    }
+	void SetExecutableMode(bool enabled) {
+		exec_mode_enabled = enabled;
+	}
+
+	bool IsExecutableMode() {
+		return exec_mode_enabled;
+	}
+
 }

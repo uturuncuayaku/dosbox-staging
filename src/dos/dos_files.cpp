@@ -619,68 +619,34 @@ bool DOS_FindFirst(const char* search, FatAttributeFlags attr, bool fcb_findfirs
 	}
 
 	// --- APPEND FALLBACK ---
-	if (DOS_Append::IsActive()) {
-		for (const auto& append_dir : DOS_Append::GetPaths()) {
-			char try_fullsearch[DOS_PATHLENGTH];
-			uint8_t try_drive;
-			std::string new_search = append_dir + "\\" + search;
-			
-			if (DOS_MakeName(new_search.c_str(), try_fullsearch, &try_drive)) {
-				char try_dir[DOS_PATHLENGTH];
-				char try_pattern[DOS_PATHLENGTH];
-				char* find_last = strrchr(try_fullsearch, '\\');
-				if (!find_last) {
-					safe_strcpy(try_pattern, try_fullsearch);
-					try_dir[0] = 0;
-				} else {
-					*find_last = 0;
-					safe_strcpy(try_pattern, find_last + 1);
-					safe_strcpy(try_dir, try_fullsearch);
-				}
-
-				dta.SetupSearch(try_drive, attr, try_pattern);
-				if (Drives.at(try_drive)->FindFirst(try_dir, dta, fcb_findfirst)) {
-					return true;
-				}
-			}
-		}
-	}
-	// --- END APPEND FALLBACK ---
-
-	// --- REDIRECT BUILT-IN FILE EXISTENCE CHECKS ---
-	std::string search_str(search);
-	std::transform(search_str.begin(), search_str.end(), search_str.begin(), ::toupper);
-	std::string redirect_search = "";
-	if (search_str.rfind("APPEND.EXE") != std::string::npos || search_str.rfind("APPEND.COM") != std::string::npos) {
-		redirect_search = "Z:\\APPEND.EXE";
-	} else if (search_str.rfind("SUBST.EXE") != std::string::npos || search_str.rfind("SUBST.COM") != std::string::npos) {
-		redirect_search = "Z:\\SUBST.EXE";
-	} else if (search_str.rfind("JOIN.EXE") != std::string::npos || search_str.rfind("JOIN.COM") != std::string::npos) {
-		redirect_search = "Z:\\JOIN.EXE";
-	}
-
-	if (!redirect_search.empty()) {
+	// VFS Failure Hook: If the standard directory search yielded no results,
+	// we attempt to match the first appended directory containing results.
+	if (DOS_Append::Resolve(search, [&](const std::string& try_path) {
 		char try_fullsearch[DOS_PATHLENGTH];
 		uint8_t try_drive;
-		if (DOS_MakeName(redirect_search.c_str(), try_fullsearch, &try_drive)) {
-			char try_dir[DOS_PATHLENGTH];
-			char try_pattern[DOS_PATHLENGTH];
-			char* find_last = strrchr(try_fullsearch, '\\');
-			if (!find_last) {
-				safe_strcpy(try_pattern, try_fullsearch);
-				try_dir[0] = 0;
-			} else {
-				*find_last = 0;
-				safe_strcpy(try_pattern, find_last + 1);
-				safe_strcpy(try_dir, try_fullsearch);
-			}
-			dta.SetupSearch(try_drive, attr, try_pattern);
-			if (Drives.at(try_drive)->FindFirst(try_dir, dta, fcb_findfirst)) {
+		if (DOS_MakeName(try_path.c_str(), try_fullsearch, &try_drive)) {
+			std::string try_path_str(try_fullsearch);
+			auto pos = try_path_str.rfind('\\');
+			std::string try_dir = (pos == std::string::npos) ? "" : try_path_str.substr(0, pos);
+			std::string try_pattern = (pos == std::string::npos) ? try_path_str : try_path_str.substr(pos + 1);
+
+			// VFS Fallback MUST NOT clobber the caller's DTA on a failed probe!
+			// We use the system's temporary DTA to probe the appended directory.
+			DOS_DTA temp_dta(dos.tables.tempdta);
+			temp_dta.SetupSearch(try_drive, attr, try_pattern.data());
+
+			if (Drives.at(try_drive)->FindFirst(try_dir.c_str(), temp_dta, fcb_findfirst)) {
+				// The probe succeeded! The appended file exists.
+				// Commit the temp DTA state to the caller's real DTA so FindNext works natively.
+				MEM_BlockCopy(RealToPhysical(dos.dta()), RealToPhysical(dos.tables.tempdta), sizeof(sDTA));
 				return true;
 			}
 		}
+		return false;
+	})) {
+		return true;
 	}
-	// --- END REDIRECT BUILT-IN FILE EXISTENCE CHECKS ---
+	// --- END APPEND FALLBACK ---
 
 	return false;
 }
@@ -946,22 +912,26 @@ bool DOS_OpenFile(const char* name, uint8_t flags, uint16_t* entry, bool fcb)
 
 		if (!Files[handle]) {
 			// --- APPEND FALLBACK ---
-			if (DOS_Append::IsActive()) {
-				for (const auto& append_dir : DOS_Append::GetPaths()) {
-					char try_fullname[DOS_PATHLENGTH];
-					uint8_t try_drive;
-					
-					std::string new_name = append_dir + "\\" + name;
-					
-					if (DOS_MakeName(new_name.c_str(), try_fullname, &try_drive)) {
-						Files[handle] = Drives.at(try_drive)->FileOpen(try_fullname, flags);
-						if (Files[handle]) {
-							drive = try_drive; // Success! Update the drive reference
-							break; // Stop searching
-						}
+			// VFS Failure Hook: If the native local lookup failed statelessly (returning nullptr),
+			// we iteratively retry the operation across the APPEND directories.
+			DOS_Append::Resolve(name, [&](const std::string& try_path) {
+				char try_fullname[DOS_PATHLENGTH];
+				uint8_t try_drive;
+				
+				// DOS_MakeName acts as our path sanitizer, converting the concatenated
+				// string into an absolute, DOS-compliant path.
+				if (DOS_MakeName(try_path.c_str(), try_fullname, &try_drive)) {
+					// We pass the absolute path directly to the bottom-layer VFS Drive
+					Files[handle] = Drives.at(try_drive)->FileOpen(try_fullname, flags);
+					if (Files[handle]) {
+						// On success, we must bind the Handle state to the newly resolved drive
+						drive = try_drive;
+						return true;
 					}
 				}
-			}
+				return false;
+			});
+			// --- END APPEND FALLBACK ---
 		}
 
 		if (Files[handle]) {

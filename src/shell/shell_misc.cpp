@@ -554,13 +554,19 @@ std::string DOS_Shell::ResolvePath(const std::string_view name) const
 		                std::make_move_iterator(path_directories.end()));
 	}
 
-	if (DOS_Append::IsActive()) {
-		for (auto directory : DOS_Append::GetPaths()) {
+	// --- APPEND EXECUTABLE HOOK ---
+	// In MS-DOS, APPEND only affects executable lookups (.COM, .EXE, .BAT) 
+	// if the /X (ExecMode) switch is explicitly provided. By hooking into 
+	// ResolvePath, we inject the appended paths directly into the shell's 
+	// execution loop natively.
+	if (DOS_Append::IsActive() && DOS_Append::IsExecutableMode()) {
+		for (const auto& directory : DOS_Append::GetPaths()) {
 			if (!directory.empty()) {
-				if (directory.back() != '\\') {
-					directory += '\\';
+				std::string dir = directory;
+				if (dir.back() != '\\') {
+					dir += '\\';
 				}
-				prefixes.push_back(directory);
+				prefixes.push_back(dir);
 			}
 		}
 	}
