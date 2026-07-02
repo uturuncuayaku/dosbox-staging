@@ -168,7 +168,6 @@ public:
 	void CMD_ATTRIB(char* args);
 	void CMD_PATH(char* args);
 	void CMD_APPEND(char* args);
-	void CMD_JOIN(char* args);
 	void CMD_SHIFT(char* args);
 	void CMD_VER(char* args);
 	void CMD_LS(char* args);

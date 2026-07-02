@@ -42,7 +42,6 @@ static const std::map<std::string, SHELL_Cmd> shell_cmds = {
 	{ "CALL",     {&DOS_Shell::CMD_CALL,     "CALL",     HELP_Filter::All,    HELP_Category::Batch } },
 	{ "CD",       {&DOS_Shell::CMD_CHDIR,    "CHDIR",    HELP_Filter::Common, HELP_Category::File } },
 	{ "CHDIR",    {&DOS_Shell::CMD_CHDIR,    "CHDIR",    HELP_Filter::All,    HELP_Category::File } },
-	{ "JOIN",     {&DOS_Shell::CMD_JOIN,     "JOIN",     HELP_Filter::All,    HELP_Category::Misc } },
 	{ "CLS",      {&DOS_Shell::CMD_CLS,      "CLS",      HELP_Filter::Common, HELP_Category::Misc} },
 	{ "COPY",     {&DOS_Shell::CMD_COPY,     "COPY",     HELP_Filter::Common, HELP_Category::File} },
 	{ "DATE",     {&DOS_Shell::CMD_DATE,     "DATE",     HELP_Filter::All,    HELP_Category::Misc } },
@@ -2743,44 +2742,59 @@ void DOS_Shell::CMD_APPEND(char* args) {
 
 	if (!args || std::strlen(args) == 0) {
 		if (DOS_Append::IsActive()) {
-			WriteOut("APPEND paths:\n");
-			for (const auto& path : DOS_Append::GetPaths()) {
-				WriteOut("%s\n", path.c_str());
+			std::string out = "APPEND=";
+			const auto& paths = DOS_Append::GetPaths();
+			for (size_t i = 0; i < paths.size(); ++i) {
+				out += paths[i];
+				if (i < paths.size() - 1) {
+					out += ";";
+				}
 			}
+			WriteOut("%s\n", out.c_str());
 		} else {
-			WriteOut("APPEND is not configured.\n");
+			WriteOut("No Append\n");
 		}
 		return;
 	}
 
 	std::string args_str(args);
+	std::string args_upper = args_str;
+	std::transform(args_upper.begin(), args_upper.end(), args_upper.begin(), ::toupper);
 
-	if (args_str == "/x" || args_str == "/X" || args_str == "/e" || args_str == "/E") {
+	// Parse MS-DOS Executable (/X) switches. When enabled, APPEND will 
+	// intercept executable resolutions (.COM, .EXE, .BAT) in addition to data files.
+	if (args_upper == "/X" || args_upper == "/X:ON" || args_upper == "/E") {
+		DOS_Append::SetExecutableMode(true);
+		return;
+	}
+	if (args_upper == "/X:OFF") {
+		DOS_Append::SetExecutableMode(false);
+		return;
+	}
+	if (args_upper == "/PATH:ON" || args_upper == "/PATH:OFF") {
+		// Legacy data file switches (default behavior, no-op in our subset)
 		return;
 	}
 
-	if (args_str == ";") {
-		DOS_Append::Clear();
+	// Semicolon alone clears the active appended paths
+	if (args_upper == ";") {
+		DOS_Append::SetPaths("");
+		SetEnv("APPEND", "");
 		return;
 	}
 
+	// Update the internal service state with the new paths
 	DOS_Append::SetPaths(args_str);
-}
 
-void DOS_Shell::CMD_JOIN(char* args) {
-	HELP("JOIN");
-	StripSpaces(args);
-
-	if (!args || std::strlen(args) == 0) {
-		WriteOut("No drives currently joined.\n");
-		return;
+	// Synchronize the %APPEND% environment variable. This allows external DOS 
+	// programs and legacy installers to verify that the APPEND service is active.
+	std::string env_out = "";
+	const auto& paths = DOS_Append::GetPaths();
+	for (size_t i = 0; i < paths.size(); ++i) {
+		env_out += paths[i];
+		if (i < paths.size() - 1) {
+			env_out += ";";
+		}
 	}
-
-	std::string args_str(args);
-
-	if (args_str.find("/d") != std::string::npos || args_str.find("/D") != std::string::npos) {
-		return;
-	}
-
-	return;
+	SetEnv("APPEND", env_out);
 }

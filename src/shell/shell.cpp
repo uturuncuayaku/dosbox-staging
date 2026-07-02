@@ -1178,8 +1178,11 @@ void SHELL_InitAndRun()
 	        "  [color=light-green]path[reset] [color=light-cyan]Z:\\;C:\\DOS[reset]\n");
 
 	MSG_Add("SHELL_CMD_APPEND_HELP",
-	        "Display or set a search path for data files.\n");
+	        "Allows programs to open data files in specified directories as if they were in the current directory.\n");
 	MSG_Add("SHELL_CMD_APPEND_HELP_LONG",
+	        "Allows programs to open data files in specified directories as if they were in\n"
+	        "the current directory. The specified directories are called appended directories.\n"
+	        "\n"
 	        "Usage:\n"
 	        "  [color=light-green]append[reset]\n"
 	        "  [color=light-green]append[reset] [color=light-cyan][[DRIVE:]PATH[;...]][reset]\n"
@@ -1195,23 +1198,6 @@ void SHELL_InitAndRun()
 	        "  [color=light-green]append[reset]\n"
 	        "  [color=light-green]append[reset] [color=light-cyan]C:\\GAMES\\WC;D:\\ORIGIN\\WC\\GAMEDAT[reset]\n");
 
-	MSG_Add("SHELL_CMD_JOIN_HELP",
-	        "Join a disk drive to a directory path on another drive.\n");
-	MSG_Add("SHELL_CMD_JOIN_HELP_LONG",
-	        "Usage:\n"
-	        "  [color=light-green]join[reset]\n"
-	        "  [color=light-green]join[reset] [color=light-cyan][DRIVE1: [DRIVE2:]PATH][reset]\n"
-	        "  [color=light-green]join[reset] [color=light-cyan]DRIVE1: /D[reset]\n"
-	        "\n"
-	        "Parameters:\n"
-	        "  [color=light-cyan]DRIVE1:[reset]      specifies a disk drive you want to join to a directory\n"
-	        "  [color=light-cyan][DRIVE2:]PATH[reset]  specifies a directory on a drive where you want to join DRIVE1:\n"
-	        "  [color=light-cyan]/D[reset]            removes a joined drive\n"
-	        "\n"
-	        "Examples:\n"
-	        "  [color=light-green]join[reset]\n"
-	        "  [color=light-green]join[reset] [color=light-cyan]D: C:\\WINGCMDR[reset]\n"
-	        "  [color=light-green]join[reset] [color=light-cyan]D: /D[reset]\n");
 
 	MSG_Add("SHELL_CMD_VER_HELP", "Display the DOS version.\n");
 	MSG_Add("SHELL_CMD_VER_HELP_LONG",
