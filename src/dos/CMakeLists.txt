@@ -38,6 +38,7 @@ target_sources(dosboxcommon PRIVATE
   drives.cpp
   programs.cpp
 
+  programs/append.cpp
   programs/attrib.cpp
   programs/autotype.cpp
   programs/boot.cpp
