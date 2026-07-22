@@ -12,6 +12,7 @@
 #include <ctime>
 
 #include "dosbox.h"
+#include "dos_append.h"
 #include "dos_windows.h"
 #include "ints/bios.h"
 #include "hardware/memory.h"
@@ -890,6 +891,14 @@ bool DOS_OpenFile(const char* name, uint8_t flags, uint16_t* entry, bool fcb)
 		if (!fcb) psp.SetFileHandle(*entry,handle);
 		return true;
 	} else {
+		// try APPEND directories before giving up
+		if (!dos_append::IsResolving() && dos_append::IsEnabled()) {
+			std::string resolved = {};
+			if (dos_append::ResolveName(name, resolved)) {
+				return DOS_OpenFile(resolved.c_str(), flags, entry, fcb);
+			}
+		}
+
 		//Test if file exists, but opened in read-write mode (and writeprotected)
 		if (((flags & 3) != OPEN_READ) &&
 		    Drives.at(drive)->FileExists(fullname)) {
