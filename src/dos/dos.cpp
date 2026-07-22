@@ -17,6 +17,7 @@
 #include "cpu/callback.h"
 #include "cpu/registers.h"
 #include "dos/cdrom_image.h"
+#include "dos/dos_append.h"
 #include "dos/dos_files.h"
 #include "dos/dos_locale.h"
 #include "dos/dos_mscdex.h"
@@ -1840,6 +1841,7 @@ public:
 			dos.version.minor = new_version.minor;
 		}
 
+		dos_append::Init();
 		DOS_AddMultiplexHandler(WINDOWS_Int2F_Handler);
 	}
 
