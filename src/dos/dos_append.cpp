@@ -69,6 +69,11 @@ bool ResolveName(const char* name, std::string& out_path)
 		return false;
 	}
 
+	// Bypass APPEND if the path contains a drive letter or directory separators
+	if (strchr(name, ':') != nullptr || strchr(name, '\\') != nullptr || strchr(name, '/') != nullptr) {
+		return false;
+	}
+
 	auto basename = ExtractBasename(name);
 	if (basename.empty()) {
 		return false;
