@@ -9,35 +9,39 @@
 
 #include "cpu/registers.h"
 #include "dos/dos.h"
-#include "dos/programs.h"
 #include "dos/programs/append.h"
 #include "shell/command_line.h"
-#include "utils/string_utils.h"
 
 #include "dos/dos_system.h"
 #include "dos/drives.h"
 #include "dosbox_test_fixture.h"
 
+#include "misc/logging.h"
+#include "hardware/memory.h"
+
 namespace {
 
-class DOS_AppendTest : public DOSBoxTestFixture {
+class DosAppendTest : public DOSBoxTestFixture {
 protected:
 	void SetUp() override
 	{
 		DOSBoxTestFixture::SetUp();
 		
-		// Mount C drive to current directory so DOS_MakeDir works
+		LOG_MSG("Mount C drive to current directory so DOS_MakeDir works");
 		Drives[2] = std::make_shared<localDrive>(".", 512, 1, 1, 1, 1, false);
 		DOS_SetDefaultDrive(2);
 
-		// Ensure APPEND is clear before each test
-		dos_append::SetDirList("");
+		LOG_MSG("Ensure APPEND is clear before each test");
+		dos_append::SetDirList("", "Minimal DOSBox setup scaffolding");
 	}
 
 	void TearDown() override
 	{
+		LOG_MSG("Tearing down the test environment");
+		LOG_MSG("Resetting the drives list");
 		Drives[2].reset();
-		dos_append::SetDirList("");
+		dos_append::SetDirList("", "Minimal DOSBox teardown scaffolding");
+		LOG_MSG("Resetting the dos test fixture");
 		DOSBoxTestFixture::TearDown();
 	}
 };
@@ -46,19 +50,19 @@ protected:
 // UNIT TESTS: State Management
 // ================================================================================
 
-TEST_F(DOS_AppendTest, Initialization)
+TEST_F(DosAppendTest, Initialization)
 {
 	EXPECT_FALSE(dos_append::IsEnabled());
 	EXPECT_EQ(dos_append::GetDirList(), "");
 }
 
-TEST_F(DOS_AppendTest, Activation)
+TEST_F(DosAppendTest, Activation)
 {
 	dos_append::SetDirList("C:\\DIR");
 	EXPECT_TRUE(dos_append::IsEnabled());
 }
 
-TEST_F(DOS_AppendTest, Deactivation)
+TEST_F(DosAppendTest, Deactivation)
 {
 	dos_append::SetDirList("C:\\DIR");
 	EXPECT_TRUE(dos_append::IsEnabled());
@@ -68,7 +72,7 @@ TEST_F(DOS_AppendTest, Deactivation)
 	EXPECT_EQ(dos_append::GetDirList(), "");
 }
 
-TEST_F(DOS_AppendTest, ReplacementBehavior)
+TEST_F(DosAppendTest, ReplacementBehavior)
 {
 	dos_append::SetDirList("C:\\ONE");
 	EXPECT_EQ(dos_append::GetDirList(), "C:\\ONE");
@@ -82,7 +86,7 @@ TEST_F(DOS_AppendTest, ReplacementBehavior)
 // UNIT TESTS: Parser and Normalization
 // ================================================================================
 
-TEST_F(DOS_AppendTest, ParserTrailingSeparators)
+TEST_F(DosAppendTest, ParserTrailingSeparators)
 {
 	// Test setting with trailing separators
 	dos_append::SetDirList("C:\\DIR\\");
@@ -94,31 +98,103 @@ TEST_F(DOS_AppendTest, ParserTrailingSeparators)
 	EXPECT_EQ(dos_append::GetDirList(), "C:\\DIR\\");
 }
 
-TEST_F(DOS_AppendTest, ParserEmptyClear)
+TEST_F(DosAppendTest, ParserEmptyClear)
 {
 	dos_append::SetDirList(";");
 	EXPECT_EQ(dos_append::GetDirList(), ";");
 }
 
-TEST_F(DOS_AppendTest, ParserDuplicates)
+TEST_F(DosAppendTest, ParserDuplicates)
 {
 	// Current implementation retains duplicates.
-	dos_append::SetDirList("C:\\ONE;C:\\ONE;D:\\TWO");
-	EXPECT_EQ(dos_append::GetDirList(), "C:\\ONE;C:\\ONE;D:\\TWO");
+	DOS_MakeDir("C:\\ONE");
+	DOS_MakeDir("C:\\TWO");
+	auto* cmd = new CommandLine("APPEND", "C:\\ONE;C:\\ONE;C:\\TWO");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+	EXPECT_EQ(dos_append::GetDirList(), "C:\\ONE;C:\\ONE;C:\\TWO");
+}
+
+TEST_F(DosAppendTest, ParserSwitches)
+{
+	DOS_MakeDir("C:\\DIR");
+	auto* cmd = new CommandLine("APPEND", "/E /X:ON /PATH:OFF C:\\DIR /X");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+	EXPECT_EQ(dos_append::GetDirList(), "C:\\DIR");
+}
+
+TEST_F(DosAppendTest, ParserWhitespaceAndQuotes)
+{
+	DOS_MakeDir("C:\\ONE");
+	DOS_MakeDir("C:\\TWO");
+	DOS_MakeDir("C:\\DIR1");
+	auto* cmd = new CommandLine("APPEND", " C:\\ONE ; \"C:\\DIR1\" ;  C:\\TWO ");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+	EXPECT_EQ(dos_append::GetDirList(), "C:\\ONE;C:\\DIR1;C:\\TWO");
+}
+
+TEST_F(DosAppendTest, ParserEmptyTokens)
+{
+	DOS_MakeDir("C:\\ONE");
+	DOS_MakeDir("C:\\TWO");
+	auto* cmd = new CommandLine("APPEND", "C:\\ONE;;;C:\\TWO;");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+	EXPECT_EQ(dos_append::GetDirList(), "C:\\ONE;C:\\TWO");
+}
+
+TEST_F(DosAppendTest, ParserAbsoluteExpansion)
+{
+	DOS_MakeDir("C:\\TEST");
+	DOS_MakeDir("C:\\TEST\\DATA");
+
+	// Set DOS CWD to C:\TEST
+	DOS_SetDefaultDrive(2);
+	DOS_ChangeDir("TEST");
+
+	auto* cmd = new CommandLine("APPEND", "DATA");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+
+	EXPECT_EQ(dos_append::GetDirList(), "C:\\TEST\\DATA");
+
+	// Reset DOS CWD back to root for other tests
+	DOS_ChangeDir("\\");
+}
+
+TEST_F(DosAppendTest, ParserInvalidPath)
+{
+	dos_append::SetDirList("C:\\GOOD");
+
+	auto* cmd = new CommandLine("APPEND", "C:\\NONEXISTENT");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+
+	// Because C:\NONEXISTENT is invalid, APPEND should abort
+	// and the original directory list should NOT be modified.
+	EXPECT_EQ(dos_append::GetDirList(), "C:\\GOOD");
 }
 
 // ================================================================================
 // UNIT TESTS: Path Resolution (ResolveName)
 // ================================================================================
 
-TEST_F(DOS_AppendTest, ResolveNameDisabledState)
+TEST_F(DosAppendTest, ResolveNameDisabledState)
 {
 	dos_append::SetDirList("");
 	std::string out_path;
 	EXPECT_FALSE(dos_append::ResolveName("FILE.TXT", out_path));
 }
 
-TEST_F(DOS_AppendTest, ResolveNameBasenameExtraction)
+TEST_F(DosAppendTest, ResolveNameBasenameExtraction)
 {
 	dos_append::SetDirList("C:\\DIR");
 	
@@ -138,7 +214,7 @@ TEST_F(DOS_AppendTest, ResolveNameBasenameExtraction)
 	EXPECT_EQ(out_path, "C:\\DIR\\README.TXT");
 }
 
-TEST_F(DOS_AppendTest, ResolveNameOrderingAndNormalization)
+TEST_F(DosAppendTest, ResolveNameOrderingAndNormalization)
 {
 	// Create directories
 	DOS_MakeDir("C:\\ONE");
@@ -169,17 +245,19 @@ TEST_F(DOS_AppendTest, ResolveNameOrderingAndNormalization)
 // We don't need a MockAPPEND class because we don't strictly test the string output, 
 // only the state side effects. APPEND is marked final anyway.
 
-TEST_F(DOS_AppendTest, CommandSetDirectories)
+TEST_F(DosAppendTest, CommandSetDirectories)
 {
-	auto* cmd = new CommandLine("APPEND", "C:\\DATA;D:\\MORE");
+	DOS_MakeDir("C:\\DATA");
+	DOS_MakeDir("C:\\MORE");
+	auto* cmd = new CommandLine("APPEND", "C:\\DATA;C:\\MORE");
 	APPEND prog;
 	prog.cmd = cmd;
 	prog.Run();
 
-	EXPECT_EQ(dos_append::GetDirList(), "C:\\DATA;D:\\MORE");
+	EXPECT_EQ(dos_append::GetDirList(), "C:\\DATA;C:\\MORE");
 }
 
-TEST_F(DOS_AppendTest, CommandClearDirectories)
+TEST_F(DosAppendTest, CommandClearDirectories)
 {
 	dos_append::SetDirList("C:\\DATA");
 
@@ -196,7 +274,7 @@ TEST_F(DOS_AppendTest, CommandClearDirectories)
 // BEHAVIORAL / INTEGRATION TESTS: DOS_OpenFile Hook
 // ================================================================================
 
-TEST_F(DOS_AppendTest, HookCoreFeatureFlow)
+TEST_F(DosAppendTest, HookCoreFeatureFlow)
 {
 	// Setup
 	DOS_MakeDir("C:\\APPEND_DIR");
@@ -232,7 +310,7 @@ TEST_F(DOS_AppendTest, HookCoreFeatureFlow)
 	EXPECT_EQ(dos.errorcode, DOSERR_FILE_NOT_FOUND); // Original error code is preserved
 }
 
-TEST_F(DOS_AppendTest, HookNegativeTestAbsolutePaths)
+TEST_F(DosAppendTest, HookNegativeTestAbsolutePaths)
 {
 	DOS_MakeDir("C:\\APPEND_DIR");
 	uint16_t created_entry;
@@ -259,7 +337,7 @@ TEST_F(DOS_AppendTest, HookNegativeTestAbsolutePaths)
 // BEHAVIORAL / INTEGRATION TESTS: Multiplex Handler
 // ================================================================================
 
-TEST_F(DOS_AppendTest, MultiplexInstallationCheck)
+TEST_F(DosAppendTest, MultiplexInstallationCheck)
 {
 	reg_ah = 0xB7;
 	reg_al = 0x00;
@@ -268,16 +346,135 @@ TEST_F(DOS_AppendTest, MultiplexInstallationCheck)
 	EXPECT_EQ(reg_al, 0xFF);
 }
 
-TEST_F(DOS_AppendTest, MultiplexIgnoredSubfunctions)
+TEST_F(DosAppendTest, MultiplexVersionCheck)
 {
-	// Version Check & Ignored Subfunctions
+	// Legacy version check (02h): MS-DOS APPEND.ASM returns AX=FFFFh
+	// to signal "I am MS-DOS APPEND, not IBM PC Network APPEND."
 	reg_ah = 0xB7;
-	reg_al = 0x01; // Version check
+	reg_al = 0x02;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+	EXPECT_EQ(reg_ax, 0xFFFF);
+}
+TEST_F(DosAppendTest, MultiplexDirPointer)
+{
+	// Dir pointer (04h): returns ES:DI pointing to the directory list
+	// in emulated DOS memory. The string should match our C++ dir_list.
+
+	dos_append::SetDirList("C:\\GAMES;D:\\DATA");
+
+	reg_ah = 0xB7;
+	reg_al = 0x04;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+
+	// ES:DI should point to a valid segment with offset 0
+	EXPECT_NE(SegValue(es), 0);
+	EXPECT_EQ(reg_di, 0x0000);
+
+	// Read the string back from emulated DOS memory and verify it matches
+	PhysPt dos_addr = (static_cast<PhysPt>(SegValue(es)) << 4) + reg_di;
+	std::string read_back;
+	for (size_t i = 0; i < 256; ++i) {
+		char c = static_cast<char>(mem_readb(dos_addr + static_cast<PhysPt>(i)));
+		if (c == '\0') {
+			break;
+		}
+		read_back += c;
+	}
+	EXPECT_EQ(read_back, "C:\\GAMES;D:\\DATA");
+
+	// Verify sync: update the list and re-read
+	dos_append::SetDirList("E:\\NEW");
+	read_back.clear();
+	for (size_t i = 0; i < 256; ++i) {
+		char c = static_cast<char>(mem_readb(dos_addr + static_cast<PhysPt>(i)));
+		if (c == '\0') {
+			break;
+		}
+		read_back += c;
+	}
+	EXPECT_EQ(read_back, "E:\\NEW");
+}
+
+TEST_F(DosAppendTest, MultiplexGetState)
+{
+	// Get state (06h): returns mode_flags in BX
+
+	// When disabled, BX should be 0
+	dos_append::SetDirList("");
+	reg_ah = 0xB7;
+	reg_al = 0x06;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+	EXPECT_EQ(reg_bx, 0x0000);
+
+	// When enabled, BX should have the Enabled bit set
+	dos_append::SetDirList("C:\\DIR");
+	reg_ah = 0xB7;
+	reg_al = 0x06;
+	handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+	EXPECT_EQ(reg_bx, 0x0001);
+}
+
+TEST_F(DosAppendTest, MultiplexSetState)
+{
+	// Set state (07h): accepts BX and honors the Enabled bit
+
+	// Start with APPEND enabled
+	dos_append::SetDirList("C:\\DIR");
+	EXPECT_TRUE(dos_append::IsEnabled());
+
+	// Disable via set_state by clearing the Enabled bit
+	reg_ah = 0xB7;
+	reg_al = 0x07;
+	reg_bx = 0x0000;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+	EXPECT_FALSE(dos_append::IsEnabled());
+
+	// Re-enable via set_state (dir_list is still non-empty)
+	reg_ah = 0xB7;
+	reg_al = 0x07;
+	reg_bx = 0x0001;
+	handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+	EXPECT_TRUE(dos_append::IsEnabled());
+}
+
+TEST_F(DosAppendTest, MultiplexDOSVersionCheck)
+{
+	// Detailed DOS version check (10h):
+	// Returns AX=mode_flags, BX=0, CX=0, DL=major, DH=minor.
+	dos_append::SetDirList("C:\\DIR");
+
+	reg_ah = 0xB7;
+	reg_al = 0x10;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+
+	// AX should contain mode_flags (Enabled = 0x0001)
+	EXPECT_EQ(reg_ax, 0x0001);
+	// BX and CX cleared
+	EXPECT_EQ(reg_bx, 0x0000);
+	EXPECT_EQ(reg_cx, 0x0000);
+	// DL=major, DH=minor from dos.version
+	EXPECT_EQ(reg_dl, dos.version.major);
+	EXPECT_EQ(reg_dh, dos.version.minor);
+}
+
+TEST_F(DosAppendTest, MultiplexIgnoredSubfunctions)
+{
+	// Subfunction 01h (not supported / ignored)
+	reg_ah = 0xB7;
+	reg_al = 0x01;
 	bool handled = dos_append::MultiplexHandler();
 	EXPECT_FALSE(handled);
 
+	// Subfunction 11h (true_name, not implemented)
 	reg_ah = 0xB7;
-	reg_al = 0x11; // Other subfunction
+	reg_al = 0x11;
 	handled = dos_append::MultiplexHandler();
 	EXPECT_FALSE(handled);
 }
