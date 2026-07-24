@@ -52,6 +52,7 @@ These commands are specific to DOSBox Staging and have no MS-DOS equivalent.
 
 | Command  | Aliases            | Description |
 |----------|--------------------|-------------|
+| `APPEND` |                    | Set directories for file searching |
 | `ATTRIB` |                    | Display or change file attributes |
 | `CD`     | `CHDIR`            | Display or change the current directory |
 | `COPY`   |                    | Copy one or more files |
