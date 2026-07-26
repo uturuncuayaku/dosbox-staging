@@ -4,20 +4,24 @@
 #ifndef DOSBOX_DOS_APPEND_H
 #define DOSBOX_DOS_APPEND_H
 
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace dos_append {
 
 void Init();
 bool IsEnabled();
 bool IsResolving();
-bool ResolveName(const char* name, std::string& out_path);
-void SetDirList(const std::string& new_list);
-std::string GetDirList();
+bool find_absolute_path(const char* target_path, std::string& absolute_path);
+std::optional<std::string> ValidateDirectories(std::string_view args);
+void SetDirectories(const std::string& new_list);
+std::string GetDirectories();
 bool MultiplexHandler();
-
-
-
+void SetFlags(bool env, bool path_on, bool exec);
+bool IsEnvOn();
+bool IsPathOverrideOn();
+bool IsExecOn();
 } // namespace dos_append
 
 #endif // DOSBOX_DOS_APPEND_H

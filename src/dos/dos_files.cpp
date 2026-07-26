@@ -893,9 +893,9 @@ bool DOS_OpenFile(const char* name, uint8_t flags, uint16_t* entry, bool fcb)
 	} else {
 		// try APPEND directories before giving up
 		if (!dos_append::IsResolving() && dos_append::IsEnabled()) {
-			std::string resolved = {};
-			if (dos_append::ResolveName(name, resolved)) {
-				return DOS_OpenFile(resolved.c_str(), flags, entry, fcb);
+			std::string absolute_path = {};
+			if (dos_append::find_absolute_path(name, absolute_path)) {
+				return DOS_OpenFile(absolute_path.c_str(), flags, entry, fcb);
 			}
 		}
 
@@ -992,9 +992,15 @@ bool DOS_UnlinkFile(const char* const name)
 
 bool DOS_GetFileAttr(const char* const name, FatAttributeFlags* attr)
 {
+	std::string append_path;
+	const char* actual_name = name;
+	if (dos_append::find_absolute_path(name, append_path)) {
+		actual_name = append_path.c_str();
+	}
+
 	char fullname[DOS_PATHLENGTH];
 	uint8_t drive;
-	if (!DOS_MakeName(name, fullname, &drive)) {
+	if (!DOS_MakeName(actual_name, fullname, &drive)) {
 		return false;
 	}
 
@@ -1009,9 +1015,15 @@ bool DOS_GetFileAttr(const char* const name, FatAttributeFlags* attr)
 
 bool DOS_SetFileAttr(const char* const name, FatAttributeFlags attr)
 {
+	std::string append_path;
+	const char* actual_name = name;
+	if (dos_append::find_absolute_path(name, append_path)) {
+		actual_name = append_path.c_str();
+	}
+
 	char fullname[DOS_PATHLENGTH];
 	uint8_t drive;
-	if (!DOS_MakeName(name, fullname, &drive))
+	if (!DOS_MakeName(actual_name, fullname, &drive))
 		return false;
 
 	const auto drive_ptr = Drives.at(drive);

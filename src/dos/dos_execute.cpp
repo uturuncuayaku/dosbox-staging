@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText:  2026 Antigravity
 // SPDX-FileCopyrightText:  2021-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
 // SPDX-License-Identifier: GPL-2.0-or-later
@@ -13,6 +14,7 @@
 #include "cpu/registers.h"
 #include "debugger/debugger.h"
 #include "dos.h"
+#include "dos_append.h"
 #include "dos/programs.h"
 #include "gui/titlebar.h"
 #include "hardware/memory.h"
@@ -177,7 +179,7 @@ void DOS_Terminate(const uint16_t psp_seg, const bool is_terminate_and_stay_resi
 	CPU_RestoreRealModeCyclesConfig();
 }
 
-static bool MakeEnv(char * name,uint16_t * segment) {
+static bool MakeEnv(const char * name,uint16_t * segment) {
 	// If segment to copy environment is 0 copy the caller's environment
 	PhysPt envread, envwrite;
 	uint16_t envsize = 1;
@@ -302,9 +304,16 @@ bool DOS_Execute(char * name,PhysPt block_pt,uint8_t flags) {
 		return false;
 //		E_Exit("DOS:Not supported execute mode %d for file %s",flags,name);
 	}
+
+	std::string append_path;
+	const char* actual_name = name;
+	if (dos_append::IsExecOn() && dos_append::find_absolute_path(name, append_path)) {
+		actual_name = append_path.c_str();
+	}
+
 	/* Check for EXE or COM File */
 	bool iscom=false;
-	if (!DOS_OpenFile(name,OPEN_READ,&fhandle)) {
+	if (!DOS_OpenFile(actual_name,OPEN_READ,&fhandle)) {
 		DOS_SetError(DOSERR_FILE_NOT_FOUND);
 		return false;
 	}
@@ -343,7 +352,7 @@ bool DOS_Execute(char * name,PhysPt block_pt,uint8_t flags) {
 	if (flags!=OVERLAY) {
 		/* Create an environment block */
 		envseg=block.exec.envseg;
-		if (!MakeEnv(name,&envseg)) {
+		if (!MakeEnv(actual_name,&envseg)) {
 			DOS_CloseFile(fhandle);
 			delete [] loadbuf;
 			return false;
@@ -491,7 +500,7 @@ bool DOS_Execute(char * name,PhysPt block_pt,uint8_t flags) {
 		newpsp.SetStack(RealMakeSeg(ss,reg_sp));
 
 		char canonical_name[DOS_PATHLENGTH];
-		if (!DOS_Canonicalize(name, canonical_name)) {
+		if (!DOS_Canonicalize(actual_name, canonical_name)) {
 			assert(false);
 		} else {
 			// If needed, override reported DOS version
@@ -510,7 +519,7 @@ bool DOS_Execute(char * name,PhysPt block_pt,uint8_t flags) {
 
 		/* Write filename in new program MCB */
 		char stripname[8]= { 0 };Bitu index=0;
-		while (char chr=*name++) {
+		while (char chr=*actual_name++) {
 			switch (chr) {
 			case ':':case '\\':case '/':index=0;break;
 			default:if (index<8) stripname[index++]=(char)toupper(chr);

@@ -3,109 +3,137 @@
 
 #include "append.h"
 
+#include <cassert>
+#include <optional>
 #include <string>
+#include <string_view>
 
-#include "dos/dos.h"
 #include "dos/dos_append.h"
 #include "misc/messages.h"
+#include "shell/shell.h"
+
+namespace {
+
+
+struct AppendOptions {
+	std::optional<bool> exec;
+	bool envOn{false};
+	std::optional<bool> pathOverride;
+
+	bool changed() const
+	{
+		return exec.has_value() || envOn || pathOverride.has_value();
+	}
+};
+
+// Parse all /X, /E, /PATH:ON/OFF options from the command line
+AppendOptions parse_options(CommandLine* cmd)
+{
+	AppendOptions options;
+
+	const bool x_on   = cmd->FindExistRemoveAll("/X:ON");
+	const bool x_bare = cmd->FindExistRemoveAll("/X");
+	const bool x_off  = cmd->FindExistRemoveAll("/X:OFF");
+
+	if (x_on || x_bare) {
+		options.exec = true;
+	} else if (x_off) {
+		options.exec = false;
+	}
+
+	options.envOn = cmd->FindExistRemoveAll("/E");
+
+	const bool path_on  = cmd->FindExistRemoveAll("/PATH:ON");
+	const bool path_off = cmd->FindExistRemoveAll("/PATH:OFF");
+
+	if (path_on) {
+		options.pathOverride = true;
+	} else if (path_off) {
+		options.pathOverride = false;
+	}
+
+	return options;
+}
+
+// Apply any option changes, keeping existing values if no option was given
+void apply_option_updates(const AppendOptions& options)
+{
+	if (!options.changed()) {
+		return;
+	}
+	bool finalEnv    = dos_append::IsEnvOn() || options.envOn;
+	bool finalPathOn = options.pathOverride.value_or(dos_append::IsPathOverrideOn());
+	bool finalExec   = options.exec.value_or(dos_append::IsExecOn());
+	dos_append::SetFlags(finalEnv, finalPathOn, finalExec);
+}
+
+
+} // namespace
+
+void APPEND::ShowCurrentState()
+{
+	auto list = dos_append::GetDirectories();
+	if (list.empty()) {
+		WriteOut(MSG_Get("PROGRAM_APPEND_NO_DIRS"));
+		WriteOut("\n");
+	} else {
+		WriteOut("APPEND=%s\n", list.c_str());
+	}
+}
+
+
+void APPEND::CommitDirectoryList(const std::string& validated_paths)
+{
+	if (dos_append::IsEnvOn()) {
+		if (auto shell = DOS_GetFirstShell()) {
+			shell->SetEnv("APPEND", validated_paths.c_str());
+		}
+	} else {
+		dos_append::SetDirectories(validated_paths);
+	}
+	assert(dos_append::GetDirectories() == validated_paths || dos_append::IsEnvOn());
+}
 
 void APPEND::Run()
 {
-
-
 	if (HelpRequested()) {
-
 		WriteOut(MSG_Get("PROGRAM_APPEND_HELP_LONG"));
 		return;
 	}
 
-	// Strip known MS-DOS APPEND switches silently
-	cmd->FindExistRemoveAll("/X");
-	cmd->FindExistRemoveAll("/X:ON");
-	cmd->FindExistRemoveAll("/X:OFF");
-	cmd->FindExistRemoveAll("/E");
-	cmd->FindExistRemoveAll("/PATH:ON");
-	cmd->FindExistRemoveAll("/PATH:OFF");
+	// Parse options from the command line
+	const AppendOptions options = parse_options(cmd);
 
-	std::string args = {};
+	// Get remaining arguments
+	std::string args;
 	cmd->GetStringRemain(args);
 
-
-	// trim leading whitespace
-	while (!args.empty() && args.front() == ' ') {
-		args.erase(args.begin());
-	}
-
-	// "APPEND ;" clears the list
+	// 1. Clear directory list (e.g. APPEND ;)
 	if (args == ";") {
-
-		dos_append::SetDirList("");
+		apply_option_updates(options);
+		dos_append::SetDirectories("");
 		return;
 	}
 
-	// no args means display current state
+	// 2. No directory arguments passed (show status or update flags only)
 	if (args.empty()) {
-
-		auto list = dos_append::GetDirList();
-		if (list.empty()) {
-			WriteOut(MSG_Get("PROGRAM_APPEND_NO_DIRS"));
-			WriteOut("\n");
+		if (options.changed()) {
+			apply_option_updates(options);
 		} else {
-			WriteOut("APPEND=%s\n", list.c_str());
+			ShowCurrentState();
 		}
 		return;
 	}
 
-	// Parse, validate, and convert to absolute paths
-	std::string cleaned_paths = "";
-	size_t start              = 0;
-	size_t end                = args.find(';');
-	while (start != std::string::npos) {
-		std::string token = args.substr(start,
-		                                end == std::string::npos
-		                                        ? std::string::npos
-		                                        : end - start);
-
-		// Trim leading spaces and quotes
-		size_t first = token.find_first_not_of(" \"");
-		if (first != std::string::npos) {
-			size_t last = token.find_last_not_of(" \"");
-			token       = token.substr(first, (last - first + 1));
-
-			if (!token.empty()) {
-				char fullname[DOS_PATHLENGTH];
-				uint8_t drive;
-				if (!DOS_MakeName(token.c_str(), fullname, &drive) ||
-				    !Drives[drive] ||
-				    !Drives[drive]->TestDir(fullname)) {
-					WriteOut(MSG_Get("PROGRAM_APPEND_INVALID_PATH"));
-					return;
-				}
-
-				std::string final_path = std::string(1, 'A' + drive) + ":\\";
-				if (fullname[0] == '\\') {
-					final_path += (fullname + 1);
-				} else {
-					final_path += fullname;
-				}
-
-				if (!cleaned_paths.empty()) {
-					cleaned_paths += ";";
-				}
-				cleaned_paths += final_path;
-			}
-		}
-
-		if (end == std::string::npos) {
-			break;
-		}
-		start = end + 1;
-		end   = args.find(';', start);
+	// 3. Directory arguments passed (validate and commit)
+	const auto validated_paths = dos_append::ValidateDirectories(args);
+	if (!validated_paths.has_value()) {
+		WriteOut(MSG_Get("PROGRAM_APPEND_INVALID_PATH"));
+		return;
 	}
 
-	// set the new directory list
-
-	dos_append::SetDirList(cleaned_paths);
+	apply_option_updates(options);
+	CommitDirectoryList(*validated_paths);
 }
 
 void APPEND::AddMessages()

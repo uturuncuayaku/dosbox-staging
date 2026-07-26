@@ -4,6 +4,8 @@
 #ifndef DOSBOX_PROGRAM_APPEND_H
 #define DOSBOX_PROGRAM_APPEND_H
 
+#include <optional>
+
 #include "dos/programs.h"
 
 class APPEND final : public Program {
@@ -20,6 +22,8 @@ public:
 
 private:
 	void AddMessages();
+	void ShowCurrentState();
+	void CommitDirectoryList(const std::string& validated_paths);
 };
 
 #endif // DOSBOX_PROGRAM_APPEND_H
