@@ -30,9 +30,8 @@ protected:
 	{
 		DOSBoxTestFixture::SetUp();
 
-		std::filesystem::create_directories("test_scratch");
-		LOG_MSG("Mount C drive to isolated test_scratch directory so DOS_MakeDir works");
-		Drives[2] = std::make_shared<localDrive>("test_scratch/", 512, 1, 1, 1, 1, false);
+		LOG_MSG("Mount C drive to static test fixture directory tests/files/append/");
+		Drives[2] = std::make_shared<localDrive>("tests/files/append/", 512, 1, 1, 1, 1, false);
 		DOS_SetDefaultDrive(2);
 
 		LOG_MSG("Ensure APPEND is clear before each test");
@@ -45,9 +44,6 @@ protected:
 		LOG_MSG("Resetting the drives list");
 		Drives[2].reset();
 		dos_append::SetDirectories("");
-
-		std::error_code ec;
-		std::filesystem::remove_all("test_scratch", ec);
 
 		LOG_MSG("Resetting the dos test fixture");
 		DOSBoxTestFixture::TearDown();
