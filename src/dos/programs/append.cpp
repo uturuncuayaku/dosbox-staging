@@ -84,14 +84,8 @@ void APPEND::ShowCurrentState()
 
 void APPEND::CommitDirectoryList(const std::string& validated_paths)
 {
-	if (dos_append::IsEnvOn()) {
-		if (auto shell = DOS_GetFirstShell()) {
-			shell->SetEnv("APPEND", validated_paths.c_str());
-		}
-	} else {
-		dos_append::SetDirectories(validated_paths);
-	}
-	assert(dos_append::GetDirectories() == validated_paths || dos_append::IsEnvOn());
+	dos_append::SetDirectories(validated_paths);
+	assert(dos_append::GetDirectories() == validated_paths);
 }
 
 void APPEND::Run()

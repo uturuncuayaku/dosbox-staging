@@ -13,6 +13,7 @@
 #include "dos/dos.h"
 #include "dos/programs/append.h"
 #include "shell/command_line.h"
+#include "shell/shell.h"
 
 #include "dos/dos_system.h"
 #include "dos/drives.h"
@@ -34,6 +35,23 @@ protected:
 		Drives[2] = std::make_shared<localDrive>("tests/files/append/", 512, 1, 1, 1, 1, false);
 		DOS_SetDefaultDrive(2);
 
+		LOG_MSG("Setup test PSP and environment segment in DOS memory");
+		uint16_t psp_seg = 0x2000;
+		uint16_t env_seg = 0x2012;
+		DOS_MCB pspmcb((uint16_t)(psp_seg - 1));
+		pspmcb.SetPSPSeg(psp_seg);
+		pspmcb.SetSize(0x10 + 2);
+		pspmcb.SetType(0x4d);
+		DOS_MCB envmcb((uint16_t)(env_seg - 1));
+		envmcb.SetPSPSeg(psp_seg);
+		envmcb.SetSize(0x100);
+		envmcb.SetType(0x4d);
+		mem_writeb(PhysicalMake(env_seg, 0), 0);
+		DOS_PSP psp(psp_seg);
+		psp.MakeNew(0);
+		psp.SetEnvironment(env_seg);
+		dos.psp(psp_seg);
+
 		LOG_MSG("Ensure APPEND is clear before each test");
 		dos_append::SetDirectories("");
 	}
@@ -44,6 +62,7 @@ protected:
 		LOG_MSG("Resetting the drives list");
 		Drives[2].reset();
 		dos_append::SetDirectories("");
+		dos.psp(0);
 
 		LOG_MSG("Resetting the dos test fixture");
 		DOSBoxTestFixture::TearDown();
@@ -510,23 +529,31 @@ TEST_F(DosAppendTest, MultiplexDirPointer)
 
 TEST_F(DosAppendTest, MultiplexGetState)
 {
-	// Get state (06h): returns mode_flags in BX
-
-	// When disabled, BX should be 0
-	dos_append::SetDirectories("");
+	// Subfunction 06h returns multiplex_enabled state in BX (controlled by 07h)
 	reg_ah       = 0xB7;
 	reg_al       = 0x06;
 	bool handled = dos_append::MultiplexHandler();
 	EXPECT_TRUE(handled);
-	EXPECT_EQ(reg_bx, 0x0000);
+	EXPECT_EQ(reg_bx, 0x0001);
 
-	// When enabled, BX should have the Enabled bit set
-	dos_append::SetDirectories("C:\\DIR");
+	// Disable via 07h
+	reg_ah = 0xB7;
+	reg_al = 0x07;
+	reg_bx = 0x0000;
+	dos_append::MultiplexHandler();
+
+	// Verify 06h returns 0 when disabled via 07h
 	reg_ah  = 0xB7;
 	reg_al  = 0x06;
 	handled = dos_append::MultiplexHandler();
 	EXPECT_TRUE(handled);
-	EXPECT_EQ(reg_bx, 0x0001);
+	EXPECT_EQ(reg_bx, 0x0000);
+
+	// Re-enable via 07h
+	reg_ah = 0xB7;
+	reg_al = 0x07;
+	reg_bx = 0x0001;
+	dos_append::MultiplexHandler();
 }
 
 TEST_F(DosAppendTest, MultiplexSetState)
@@ -577,17 +604,114 @@ TEST_F(DosAppendTest, MultiplexDOSVersionCheck)
 
 TEST_F(DosAppendTest, MultiplexIgnoredSubfunctions)
 {
-	// Subfunction 01h (not supported / ignored)
+	// Subfunction 05h (unsupported / undefined subfunction)
 	reg_ah       = 0xB7;
-	reg_al       = 0x01;
+	reg_al       = 0x05;
 	bool handled = dos_append::MultiplexHandler();
 	EXPECT_FALSE(handled);
+}
 
-	// Subfunction 11h (true_name, not implemented)
-	reg_ah  = 0xB7;
-	reg_al  = 0x11;
-	handled = dos_append::MultiplexHandler();
-	EXPECT_FALSE(handled);
+TEST_F(DosAppendTest, MultiplexTopViewSync)
+{
+	// Subfunction 03h (IBM TopView / DESQview process sync)
+	reg_ah       = 0xB7;
+	reg_al       = 0x03;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+}
+
+TEST_F(DosAppendTest, MultiplexLegacyAndTrueNameIgnored)
+{
+	// Subfunctions 01h (legacy APPEND 1.0) and 11h (TrueName) are omitted per MS-DOS 4.0 compatibility decision
+	reg_ah = 0xB7;
+	reg_al = 0x01;
+	EXPECT_FALSE(dos_append::MultiplexHandler());
+
+	reg_ah = 0xB7;
+	reg_al = 0x11;
+	EXPECT_FALSE(dos_append::MultiplexHandler());
+}
+
+TEST_F(DosAppendTest, EnvModeExternalSetAppend)
+{
+	dos_append::SetFlags(true, true, false);
+	dos_append::SetDirectories("C:\\DIR");
+
+	// Simulate user/batch file modifying the shell environment directly
+	if (auto shell = DOS_GetFirstShell()) {
+		shell->SetEnv("APPEND", "C:\\DIR;C:\\OTHER");
+	} else if (dos.psp() != 0) {
+		DOS_PSP(dos.psp()).SetEnvironmentValue("APPEND", "C:\\DIR;C:\\OTHER");
+	}
+
+	// Verify GetDirectories() discovers the external environment change
+	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DIR;C:\\OTHER");
+
+	// Invoke B704h and verify the returned DOS-memory string reflects the change on demand
+	reg_ah       = 0xB7;
+	reg_al       = 0x04;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+
+	char buf[128] = {};
+	MEM_StrCopy(SegPhys(es) + reg_di, buf, sizeof(buf));
+	EXPECT_EQ(std::string(buf), "C:\\DIR;C:\\OTHER");
+}
+
+TEST_F(DosAppendTest, EnvModeSyncAndClear)
+{
+	dos_append::SetFlags(true, true, false);
+	dos_append::SetDirectories("C:\\DIR");
+	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DIR");
+
+	reg_ah       = 0xB7;
+	reg_al       = 0x04;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+
+	char buf[128] = {};
+	MEM_StrCopy(SegPhys(es) + reg_di, buf, sizeof(buf));
+	EXPECT_EQ(std::string(buf), "C:\\DIR");
+
+	dos_append::SetDirectories("");
+	EXPECT_EQ(dos_append::GetDirectories(), "");
+	EXPECT_FALSE(dos_append::IsEnabled());
+}
+
+TEST_F(DosAppendTest, B707hDisableOverride)
+{
+	dos_append::SetFlags(true, true, false);
+	dos_append::SetDirectories("C:\\DIR");
+	EXPECT_TRUE(dos_append::IsEnabled());
+
+	reg_ah       = 0xB7;
+	reg_al       = 0x07;
+	reg_bx       = 0x0000;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+	EXPECT_FALSE(dos_append::IsEnabled());
+
+	reg_bx = 0x0001;
+	dos_append::MultiplexHandler();
+	EXPECT_TRUE(dos_append::IsEnabled());
+}
+
+TEST_F(DosAppendTest, FindFirstWildcardResolution)
+{
+	dos_append::SetDirectories("C:\\DIR");
+
+	// Without /X:ON, FindFirst should fail for APPEND directories
+	dos_append::SetFlags(false, true, false);
+	EXPECT_FALSE(DOS_FindFirst("*.TXT", FatAttributeFlags::NotVolume));
+
+	// With /X:ON, FindFirst should resolve *.TXT in C:\DIR (finding README.TXT)
+	dos_append::SetFlags(false, true, true);
+	EXPECT_TRUE(DOS_FindFirst("*.TXT", FatAttributeFlags::NotVolume));
+
+	DOS_DTA dta(dos.dta());
+	DOS_DTA::Result res = {};
+	dta.GetResult(res);
+	EXPECT_EQ(res.name, "README.TXT");
 }
 
 } // namespace

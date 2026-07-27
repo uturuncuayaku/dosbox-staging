@@ -8,12 +8,15 @@
 #include <string>
 #include <string_view>
 
+#include "dos.h"
+
 namespace dos_append {
 
 void Init();
 bool IsEnabled();
 bool IsResolving();
 bool find_absolute_path(const char* target_path, std::string& absolute_path);
+bool FindFirst(const char* search, FatAttributeFlags attr, bool fcb_findfirst);
 std::optional<std::string> ValidateDirectories(std::string_view args);
 void SetDirectories(const std::string& new_list);
 std::string GetDirectories();

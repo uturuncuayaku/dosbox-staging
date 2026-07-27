@@ -618,6 +618,10 @@ bool DOS_FindFirst(const char* search, FatAttributeFlags attr, bool fcb_findfirs
 		return true;
 	}
 
+	if (dos_append::FindFirst(search, attr, fcb_findfirst)) {
+		return true;
+	}
+
 	return false;
 }
 
