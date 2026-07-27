@@ -1,0 +1,656 @@
+﻿diff --git a/src/dos/CMakeLists.txt b/src/dos/CMakeLists.txt
+index 2e30bb713..4fc47200a 100644
+--- a/src/dos/CMakeLists.txt
++++ b/src/dos/CMakeLists.txt
+@@ -13,6 +13,7 @@ target_sources(dosboxcommon PRIVATE
+   cdrom.cpp
+   cdrom_image.cpp
+   dos.cpp
++  dos_append.cpp
+   dos_classes.cpp
+   dos_code_page.cpp
+   dos_devices.cpp
+@@ -37,6 +38,7 @@ target_sources(dosboxcommon PRIVATE
+   drives.cpp
+   programs.cpp
+ 
++  programs/append.cpp
+   programs/attrib.cpp
+   programs/autotype.cpp
+   programs/boot.cpp
+diff --git a/src/dos/dos.cpp b/src/dos/dos.cpp
+index 8ba380694..54ba642da 100644
+--- a/src/dos/dos.cpp
++++ b/src/dos/dos.cpp
+@@ -17,6 +17,7 @@
+ #include "cpu/callback.h"
+ #include "cpu/registers.h"
+ #include "dos/cdrom_image.h"
++#include "dos/dos_append.h"
+ #include "dos/dos_files.h"
+ #include "dos/dos_locale.h"
+ #include "dos/dos_mscdex.h"
+@@ -1840,6 +1841,7 @@ public:
+ 			dos.version.minor = new_version.minor;
+ 		}
+ 
++		dos_append::Init();
+ 		DOS_AddMultiplexHandler(WINDOWS_Int2F_Handler);
+ 	}
+ 
+diff --git a/src/dos/dos_append.cpp b/src/dos/dos_append.cpp
+new file mode 100644
+index 000000000..13b134011
+--- /dev/null
++++ b/src/dos/dos_append.cpp
+@@ -0,0 +1,133 @@
++// SPDX-FileCopyrightText:  2026 The DOSBox Staging Team
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "dos_append.h"
++
++#include <string>
++
++#include "dos.h"
++#include "cpu/registers.h"
++#include "dos/dos_system.h"
++
++namespace dos_append {
++
++static std::string dir_list     = {};
++static bool enabled             = false;
++static bool currently_resolving = false;
++
++void Init()
++{
++	DOS_AddMultiplexHandler(MultiplexHandler);
++}
++
++bool IsEnabled()
++{
++	return enabled;
++}
++
++bool IsResolving()
++{
++	return currently_resolving;
++}
++
++void SetDirList(const std::string& new_list)
++{
++	dir_list = new_list;
++	enabled  = !dir_list.empty();
++}
++
++std::string GetDirList()
++{
++	return dir_list;
++}
++
++// pull just the filename off the end of a path
++static std::string ExtractBasename(const std::string& path)
++{
++	auto pos = path.find_last_of("\\/");
++	if (pos == std::string::npos) {
++		return path;
++	}
++	return path.substr(pos + 1);
++}
++
++// strip trailing slash so dir + "\\" + name concatenates cleanly
++static std::string TrimTrailingSeparator(const std::string& dir)
++{
++	if (dir.empty()) {
++		return dir;
++	}
++	if (dir.back() == '\\' || dir.back() == '/') {
++		return dir.substr(0, dir.size() - 1);
++	}
++	return dir;
++}
++
++bool ResolveName(const char* name, std::string& out_path)
++{
++	if (!enabled || currently_resolving) {
++		return false;
++	}
++
++	// Bypass APPEND if the path contains a drive letter or directory separators
++	if (strchr(name, ':') != nullptr || strchr(name, '\\') != nullptr || strchr(name, '/') != nullptr) {
++		return false;
++	}
++
++	auto basename = ExtractBasename(name);
++	if (basename.empty()) {
++		return false;
++	}
++
++	currently_resolving = true;
++
++	// walk the semicolon-delimited list in order
++	std::string remaining = dir_list;
++	while (!remaining.empty()) {
++		std::string dir = {};
++		auto sep = remaining.find(';');
++		if (sep != std::string::npos) {
++			dir       = remaining.substr(0, sep);
++			remaining = remaining.substr(sep + 1);
++		} else {
++			dir       = remaining;
++			remaining = {};
++		}
++
++		if (dir.empty()) {
++			continue;
++		}
++
++		dir = TrimTrailingSeparator(dir);
++		auto candidate = dir + "\\" + basename;
++
++		if (DOS_FileExists(candidate.c_str())) {
++			out_path            = candidate;
++			currently_resolving = false;
++			return true;
++		}
++	}
++
++	currently_resolving = false;
++	return false;
++}
++
++// INT 2Fh AH=B7h handler
++bool MultiplexHandler()
++{
++	if (reg_ah != 0xB7) {
++		return false;
++	}
++
++	switch (reg_al) {
++	case 0x00:
++		// installation check: FFh = installed
++		reg_al = 0xFF;
++		return true;
++	default:
++		// IMPLEMENTATION BOUNDARY B702: everything else is stubbed
++		return false;
++	}
++}
++
++} // namespace dos_append
+diff --git a/src/dos/dos_append.h b/src/dos/dos_append.h
+new file mode 100644
+index 000000000..6a4e33050
+--- /dev/null
++++ b/src/dos/dos_append.h
+@@ -0,0 +1,21 @@
++// SPDX-FileCopyrightText:  2026 The DOSBox Staging Team
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#ifndef DOSBOX_DOS_APPEND_H
++#define DOSBOX_DOS_APPEND_H
++
++#include <string>
++
++namespace dos_append {
++
++void Init();
++bool IsEnabled();
++bool IsResolving();
++bool ResolveName(const char* name, std::string& out_path);
++void SetDirList(const std::string& new_list);
++std::string GetDirList();
++bool MultiplexHandler();
++
++} // namespace dos_append
++
++#endif // DOSBOX_DOS_APPEND_H
+diff --git a/src/dos/dos_files.cpp b/src/dos/dos_files.cpp
+index d74f26270..cbdcd2f52 100644
+--- a/src/dos/dos_files.cpp
++++ b/src/dos/dos_files.cpp
+@@ -12,6 +12,7 @@
+ #include <ctime>
+ 
+ #include "dosbox.h"
++#include "dos_append.h"
+ #include "dos_windows.h"
+ #include "ints/bios.h"
+ #include "hardware/memory.h"
+@@ -890,6 +891,14 @@ bool DOS_OpenFile(const char* name, uint8_t flags, uint16_t* entry, bool fcb)
+ 		if (!fcb) psp.SetFileHandle(*entry,handle);
+ 		return true;
+ 	} else {
++		// try APPEND directories before giving up
++		if (!dos_append::IsResolving() && dos_append::IsEnabled()) {
++			std::string resolved = {};
++			if (dos_append::ResolveName(name, resolved)) {
++				return DOS_OpenFile(resolved.c_str(), flags, entry, fcb);
++			}
++		}
++
+ 		//Test if file exists, but opened in read-write mode (and writeprotected)
+ 		if (((flags & 3) != OPEN_READ) &&
+ 		    Drives.at(drive)->FileExists(fullname)) {
+diff --git a/src/dos/dos_programs.cpp b/src/dos/dos_programs.cpp
+index 4a20f0730..7cfa97b9b 100644
+--- a/src/dos/dos_programs.cpp
++++ b/src/dos/dos_programs.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include "dos/programs.h"
+ 
++#include "programs/append.h"
+ #include "programs/attrib.h"
+ #include "programs/autotype.h"
+ #include "programs/boot.h"
+@@ -59,6 +60,7 @@ void DOS_SetupPrograms()
+ 	VFILE_GetPathZDrive(path, dirname);
+ 	VFILE_RegisterZDrive(path);
+ 
++	PROGRAMS_MakeFile("APPEND.EXE", ProgramCreate<APPEND>);
+ 	PROGRAMS_MakeFile("ATTRIB.COM", ProgramCreate<ATTRIB>);
+ 	PROGRAMS_MakeFile("AUTOTYPE.COM", ProgramCreate<AUTOTYPE>);
+ #if C_DEBUGGER
+diff --git a/src/dos/programs/append.cpp b/src/dos/programs/append.cpp
+new file mode 100644
+index 000000000..617c9e8a7
+--- /dev/null
++++ b/src/dos/programs/append.cpp
+@@ -0,0 +1,74 @@
++// SPDX-FileCopyrightText:  2026 The DOSBox Staging Team
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "append.h"
++
++#include <string>
++
++#include "dos/dos_append.h"
++#include "misc/messages.h"
++
++void APPEND::Run()
++{
++	if (HelpRequested()) {
++		WriteOut(MSG_Get("PROGRAM_APPEND_HELP_LONG"));
++		return;
++	}
++
++	std::string args = {};
++	cmd->GetStringRemain(args);
++
++	// trim leading whitespace
++	while (!args.empty() && args.front() == ' ') {
++		args.erase(args.begin());
++	}
++
++	// "APPEND ;" clears the list
++	if (args == ";") {
++		dos_append::SetDirList("");
++		return;
++	}
++
++	// no args means display current state
++	if (args.empty()) {
++		auto list = dos_append::GetDirList();
++		if (list.empty()) {
++			WriteOut(MSG_Get("PROGRAM_APPEND_NO_DIRS"));
++			WriteOut("\n");
++		} else {
++			WriteOut("APPEND=%s\n", list.c_str());
++		}
++		return;
++	}
++
++	// set the new directory list
++	dos_append::SetDirList(args);
++}
++
++void APPEND::AddMessages()
++{
++	MSG_Add("PROGRAM_APPEND_HELP_LONG",
++	        "Set directories for file searching.\n"
++	        "\n"
++	        "Usage:\n"
++	        "  [color=light-green]append[reset] [color=light-cyan]DIR[reset][[;[color=light-cyan]DIR[reset]]...]\n"
++	        "  [color=light-green]append[reset]\n"
++	        "  [color=light-green]append[reset] ;\n"
++	        "\n"
++	        "Parameters:\n"
++	        "  [color=light-cyan]DIR[reset]  directory to add to the search list\n"
++	        "  ;    clear the directory list\n"
++	        "\n"
++	        "Notes:\n"
++	        "  When a program tries to open a file that isn't found in the current\n"
++	        "  directory, the directories in the APPEND list are searched in order.\n"
++	        "  Running APPEND with no arguments shows the current list.\n"
++	        "\n"
++	        "Examples:\n"
++	        "  [color=light-green]append[reset] [color=light-cyan]C:\\DATA[reset]            ; search C:\\DATA for files\n"
++	        "  [color=light-green]append[reset] [color=light-cyan]C:\\ONE[reset];[color=light-cyan]D:\\TWO[reset]     ; search C:\\ONE then D:\\TWO\n"
++	        "  [color=light-green]append[reset]                    ; display current list\n"
++	        "  [color=light-green]append[reset] ;                  ; clear the list\n");
++
++	MSG_Add("PROGRAM_APPEND_NO_DIRS", "No APPEND directories.");
++}
+diff --git a/src/dos/programs/append.h b/src/dos/programs/append.h
+new file mode 100644
+index 000000000..d0050f56d
+--- /dev/null
++++ b/src/dos/programs/append.h
+@@ -0,0 +1,25 @@
++// SPDX-FileCopyrightText:  2026 The DOSBox Staging Team
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#ifndef DOSBOX_PROGRAM_APPEND_H
++#define DOSBOX_PROGRAM_APPEND_H
++
++#include "dos/programs.h"
++
++class APPEND final : public Program {
++public:
++	APPEND()
++	{
++		AddMessages();
++		help_detail = {HELP_Filter::Common,
++		               HELP_Category::File,
++		               HELP_CmdType::Program,
++		               "APPEND"};
++	}
++	void Run() override;
++
++private:
++	void AddMessages();
++};
++
++#endif // DOSBOX_PROGRAM_APPEND_H
+diff --git a/tests/dos_append_tests.cpp b/tests/dos_append_tests.cpp
+new file mode 100644
+index 000000000..7e01e8a16
+--- /dev/null
++++ b/tests/dos_append_tests.cpp
+@@ -0,0 +1,285 @@
++// SPDX-FileCopyrightText:  2026 The DOSBox Staging Team
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "dos/dos_append.h"
++
++#include <string>
++
++#include <gtest/gtest.h>
++
++#include "cpu/registers.h"
++#include "dos/dos.h"
++#include "dos/programs.h"
++#include "dos/programs/append.h"
++#include "shell/command_line.h"
++#include "utils/string_utils.h"
++
++#include "dos/dos_system.h"
++#include "dos/drives.h"
++#include "dosbox_test_fixture.h"
++
++namespace {
++
++class DOS_AppendTest : public DOSBoxTestFixture {
++protected:
++	void SetUp() override
++	{
++		DOSBoxTestFixture::SetUp();
++		
++		// Mount C drive to current directory so DOS_MakeDir works
++		Drives[2] = std::make_shared<localDrive>(".", 512, 1, 1, 1, 1, false);
++		DOS_SetDefaultDrive(2);
++
++		// Ensure APPEND is clear before each test
++		dos_append::SetDirList("");
++	}
++
++	void TearDown() override
++	{
++		Drives[2].reset();
++		dos_append::SetDirList("");
++		DOSBoxTestFixture::TearDown();
++	}
++};
++
++// ================================================================================
++// UNIT TESTS: State Management
++// ================================================================================
++
++TEST_F(DOS_AppendTest, Initialization)
++{
++	EXPECT_FALSE(dos_append::IsEnabled());
++	EXPECT_EQ(dos_append::GetDirList(), "");
++}
++
++TEST_F(DOS_AppendTest, Activation)
++{
++	dos_append::SetDirList("C:\\DIR");
++	EXPECT_TRUE(dos_append::IsEnabled());
++}
++
++TEST_F(DOS_AppendTest, Deactivation)
++{
++	dos_append::SetDirList("C:\\DIR");
++	EXPECT_TRUE(dos_append::IsEnabled());
++
++	dos_append::SetDirList("");
++	EXPECT_FALSE(dos_append::IsEnabled());
++	EXPECT_EQ(dos_append::GetDirList(), "");
++}
++
++TEST_F(DOS_AppendTest, ReplacementBehavior)
++{
++	dos_append::SetDirList("C:\\ONE");
++	EXPECT_EQ(dos_append::GetDirList(), "C:\\ONE");
++
++	// Consecutive calls completely replace the list
++	dos_append::SetDirList("C:\\TWO");
++	EXPECT_EQ(dos_append::GetDirList(), "C:\\TWO");
++}
++
++// ================================================================================
++// UNIT TESTS: Parser and Normalization
++// ================================================================================
++
++TEST_F(DOS_AppendTest, ParserTrailingSeparators)
++{
++	// Test setting with trailing separators
++	dos_append::SetDirList("C:\\DIR\\");
++
++	// Since SetDirList stores the raw string, the normalization happens in ResolveName.
++	// But let's verify how it resolves. We mock a file creation to test resolution.
++	// We'll test this behavior properly in the ResolveName tests where it is applied.
++	// However, we verify it is stored exactly as given.
++	EXPECT_EQ(dos_append::GetDirList(), "C:\\DIR\\");
++}
++
++TEST_F(DOS_AppendTest, ParserEmptyClear)
++{
++	dos_append::SetDirList(";");
++	EXPECT_EQ(dos_append::GetDirList(), ";");
++}
++
++TEST_F(DOS_AppendTest, ParserDuplicates)
++{
++	// Current implementation retains duplicates.
++	dos_append::SetDirList("C:\\ONE;C:\\ONE;D:\\TWO");
++	EXPECT_EQ(dos_append::GetDirList(), "C:\\ONE;C:\\ONE;D:\\TWO");
++}
++
++// ================================================================================
++// UNIT TESTS: Path Resolution (ResolveName)
++// ================================================================================
++
++TEST_F(DOS_AppendTest, ResolveNameDisabledState)
++{
++	dos_append::SetDirList("");
++	std::string out_path;
++	EXPECT_FALSE(dos_append::ResolveName("FILE.TXT", out_path));
++}
++
++TEST_F(DOS_AppendTest, ResolveNameBasenameExtraction)
++{
++	dos_append::SetDirList("C:\\DIR");
++	
++	// Create a dummy file in the append dir
++	DOS_MakeDir("C:\\DIR");
++	uint16_t entry;
++	DOS_CreateFile("C:\\DIR\\README.TXT", 0, &entry);
++	DOS_CloseFile(entry);
++
++	std::string out_path;
++
++	// Extraction test: Absolute paths or paths with directories should bypass APPEND
++	EXPECT_FALSE(dos_append::ResolveName("D:\\OTHER\\README.TXT", out_path));
++
++	// Pure filenames should be resolved
++	EXPECT_TRUE(dos_append::ResolveName("README.TXT", out_path));
++	EXPECT_EQ(out_path, "C:\\DIR\\README.TXT");
++}
++
++TEST_F(DOS_AppendTest, ResolveNameOrderingAndNormalization)
++{
++	// Create directories
++	DOS_MakeDir("C:\\ONE");
++	DOS_MakeDir("C:\\TWO");
++	DOS_MakeDir("C:\\THREE");
++
++	// Create test file in multiple directories
++	uint16_t entry;
++	DOS_CreateFile("C:\\ONE\\FILE.TXT", 0, &entry);
++	DOS_CloseFile(entry);
++	DOS_CreateFile("C:\\THREE\\FILE.TXT", 0, &entry);
++	DOS_CloseFile(entry);
++
++	// Case sensitivity check for dir storage and trailing separator normalization
++	// Note: DOS paths are case-insensitive.
++	dos_append::SetDirList("c:\\two\\;;;C:\\ONE\\;C:\\THREE");
++
++	std::string out_path;
++	EXPECT_TRUE(dos_append::ResolveName("FILE.TXT", out_path));
++	// Should pick C:\ONE over C:\THREE due to ordering
++	EXPECT_EQ(out_path, "C:\\ONE\\FILE.TXT");
++}
++
++// ================================================================================
++// BEHAVIORAL / INTEGRATION TESTS: APPEND Command Execution
++// ================================================================================
++
++// We don't need a MockAPPEND class because we don't strictly test the string output, 
++// only the state side effects. APPEND is marked final anyway.
++
++TEST_F(DOS_AppendTest, CommandSetDirectories)
++{
++	auto* cmd = new CommandLine("APPEND", "C:\\DATA;D:\\MORE");
++	APPEND prog;
++	prog.cmd = cmd;
++	prog.Run();
++
++	EXPECT_EQ(dos_append::GetDirList(), "C:\\DATA;D:\\MORE");
++}
++
++TEST_F(DOS_AppendTest, CommandClearDirectories)
++{
++	dos_append::SetDirList("C:\\DATA");
++
++	auto* cmd = new CommandLine("APPEND", ";");
++	APPEND prog;
++	prog.cmd = cmd;
++	prog.Run();
++
++	EXPECT_EQ(dos_append::GetDirList(), "");
++	EXPECT_FALSE(dos_append::IsEnabled());
++}
++
++// ================================================================================
++// BEHAVIORAL / INTEGRATION TESTS: DOS_OpenFile Hook
++// ================================================================================
++
++TEST_F(DOS_AppendTest, HookCoreFeatureFlow)
++{
++	// Setup
++	DOS_MakeDir("C:\\APPEND_DIR");
++	uint16_t created_entry;
++	DOS_CreateFile("C:\\APPEND_DIR\\README.TXT", 0, &created_entry);
++	DOS_CloseFile(created_entry);
++
++	// 1. Inactive: should fail with FILE_NOT_FOUND
++	uint16_t entry;
++	dos.errorcode = 0;
++	bool success = DOS_OpenFile("README.TXT", OPEN_READ, &entry);
++	EXPECT_FALSE(success);
++	EXPECT_EQ(dos.errorcode, DOSERR_FILE_NOT_FOUND);
++
++	// 2. Active, file not in list: should fail with original error
++	dos_append::SetDirList("C:\\OTHER_DIR");
++	dos.errorcode = 0;
++	success = DOS_OpenFile("README.TXT", OPEN_READ, &entry);
++	EXPECT_FALSE(success);
++	EXPECT_EQ(dos.errorcode, DOSERR_FILE_NOT_FOUND); // original error in current dir was FILE_NOT_FOUND
++
++	// 3. Active, file in list: should succeed
++	dos_append::SetDirList("C:\\APPEND_DIR");
++	dos.errorcode = 0;
++	success = DOS_OpenFile("README.TXT", OPEN_READ, &entry);
++	EXPECT_TRUE(success);
++	DOS_CloseFile(entry);
++
++	// 4. Error Preservation
++	dos.errorcode = 0;
++	success = DOS_OpenFile("MISSING.TXT", OPEN_READ, &entry);
++	EXPECT_FALSE(success);
++	EXPECT_EQ(dos.errorcode, DOSERR_FILE_NOT_FOUND); // Original error code is preserved
++}
++
++TEST_F(DOS_AppendTest, HookNegativeTestAbsolutePaths)
++{
++	DOS_MakeDir("C:\\APPEND_DIR");
++	uint16_t created_entry;
++	DOS_CreateFile("C:\\APPEND_DIR\\FILE.TXT", 0, &created_entry);
++	DOS_CloseFile(created_entry);
++
++	dos_append::SetDirList("C:\\APPEND_DIR");
++
++	uint16_t entry;
++	
++	// Paths with drive letters should NOT trigger APPEND
++	bool success = DOS_OpenFile("A:FILE.TXT", OPEN_READ, &entry);
++	EXPECT_FALSE(success);
++	
++	// Paths with directory separators should NOT trigger APPEND
++	success = DOS_OpenFile("SUB\\FILE.TXT", OPEN_READ, &entry);
++	EXPECT_FALSE(success);
++
++	success = DOS_OpenFile("C:\\OTHER\\FILE.TXT", OPEN_READ, &entry);
++	EXPECT_FALSE(success);
++}
++
++// ================================================================================
++// BEHAVIORAL / INTEGRATION TESTS: Multiplex Handler
++// ================================================================================
++
++TEST_F(DOS_AppendTest, MultiplexInstallationCheck)
++{
++	reg_ah = 0xB7;
++	reg_al = 0x00;
++	bool handled = dos_append::MultiplexHandler();
++	EXPECT_TRUE(handled);
++	EXPECT_EQ(reg_al, 0xFF);
++}
++
++TEST_F(DOS_AppendTest, MultiplexIgnoredSubfunctions)
++{
++	// Version Check & Ignored Subfunctions
++	reg_ah = 0xB7;
++	reg_al = 0x01; // Version check
++	bool handled = dos_append::MultiplexHandler();
++	EXPECT_FALSE(handled);
++
++	reg_ah = 0xB7;
++	reg_al = 0x11; // Other subfunction
++	handled = dos_append::MultiplexHandler();
++	EXPECT_FALSE(handled);
++}
++
++} // namespace
+
