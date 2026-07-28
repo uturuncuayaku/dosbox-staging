@@ -1,0 +1,17 @@
+{
+  "skill_name": "dosbox-cpu-explorer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm writing a C++ interrupt handler for DOSBox. When the interrupt finishes, how do I set the CPU's zero flag to indicate success, and where is this documented in the codebase?",
+      "expected_output": "The agent should research CPU APIs, specifically mention CALLBACK_SZF(true) or flags.h, and explain how it modifies the emulated CPU state.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Explain how DOSBox-Staging simulates floppy drive delays so games don't load too fast. How does it interact with the CPU cycles?",
+      "expected_output": "The agent should research dos.cpp or cpu.cpp, explain modify_cycles or CPU_Cycles, and explain how subtracting cycles simulates a hardware delay in the guest.",
+      "files": []
+    }
+  ]
+}

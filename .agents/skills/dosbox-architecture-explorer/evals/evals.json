@@ -1,0 +1,23 @@
+{
+  "skill_name": "dosbox-architecture-explorer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to write a new DOS command. Analyze how the DOS kernel and CPU handles memory allocation (MCBs) when a new program starts, and write a short summary of best practices for my code.",
+      "expected_output": "A report detailing MCB allocations in dos_memory.cpp and how DOS_21Handler intercepts EXEC calls.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Analyze how disk delays are injected into DOSBox-Staging for retro gaming accuracy, and suggest how we might use similar delays in the APPEND feature.",
+      "expected_output": "A report analyzing DOS_PerformDiskIoDelay and CPU cycle modification.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I'm working on a memory scanning tool for DOSBox. Explain how I should safely read a string from guest memory at a specific Segment:Offset without crashing the emulator.",
+      "expected_output": "Code review advice detailing the use of RealPt, real_readb, and MEM_StrCopy instead of native pointer arithmetic.",
+      "files": []
+    }
+  ]
+}

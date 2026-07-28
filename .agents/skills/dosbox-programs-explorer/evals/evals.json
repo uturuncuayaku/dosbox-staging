@@ -1,0 +1,17 @@
+{
+  "skill_name": "dosbox-programs-explorer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to create a new command called VERIFY. Where should I inherit from, and how do I print 'Verification complete.' to the DOS terminal?",
+      "expected_output": "The agent should research programs.h, explain the Program base class, and specify the use of WriteOut() instead of std::cout.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "My new command needs to parse the arguments passed to it. How is this done in DOSBox-Staging?",
+      "expected_output": "The agent should research command_line.h, and explain how the CommandLine* cmd pointer is used within the Program's Run() method.",
+      "files": []
+    }
+  ]
+}

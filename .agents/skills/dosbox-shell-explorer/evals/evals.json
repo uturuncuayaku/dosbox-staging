@@ -1,0 +1,17 @@
+{
+  "skill_name": "dosbox-shell-explorer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to add a simple command to the shell called CLS that clears the screen. Should I create a new Program executable for this, or put it directly in the shell? Where in the code would I add it?",
+      "expected_output": "The agent should research shell.h and shell_cmds.cpp, recommend adding it as a built-in method like CMD_CLS on the DOS_Shell class, and explain how to register it in AddShellCmdsToHelpList.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "How does the DOSBox shell handle output redirection like 'DIR > OUT.TXT'?",
+      "expected_output": "The agent should research shell.h, locate DOS_Shell::GetRedirection, and explain how the RedirectionResults struct captures the in_file and out_file targets.",
+      "files": []
+    }
+  ]
+}

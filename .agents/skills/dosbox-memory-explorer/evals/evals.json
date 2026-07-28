@@ -1,0 +1,17 @@
+{
+  "skill_name": "dosbox-memory-explorer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm trying to write a new MS-DOS command that needs to allocate 512 bytes of RAM. How do I request an MCB allocation using the internal memory APIs, and what pointer type does it return?",
+      "expected_output": "The agent should research dos_memory.cpp, explain DOS_AllocateMemory, and clarify the return of a RealPt.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I have a native C++ std::string containing a path. I want to copy it into the emulated DOS heap at a specific Segment:Offset so a legacy program can read it. How do I do this safely?",
+      "expected_output": "The agent should research memory.h, explain the difference between RealPt and HostPt, and recommend using MEM_StrCopy or phys_writeb instead of standard memcpy.",
+      "files": []
+    }
+  ]
+}

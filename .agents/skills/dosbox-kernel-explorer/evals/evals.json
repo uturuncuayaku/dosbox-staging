@@ -1,0 +1,17 @@
+{
+  "skill_name": "dosbox-kernel-explorer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm trying to hook a new subfunction into the MS-DOS Multiplex interrupt (INT 2Fh) for my custom utility. Where in the DOSBox kernel should I look to see how this is done, and how do I indicate an error back to the guest?",
+      "expected_output": "The agent should research dos.cpp or dos_append.cpp, explain the MultiplexHandler (INT 2Fh), and state that errors are typically returned by setting the carry flag via CALLBACK_SCF(true) and returning an error code in reg_ax.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "My new command needs to open a file on the host filesystem based on a path provided by the MS-DOS guest. How do I trace how DOS_OpenFile resolves guest paths to host paths?",
+      "expected_output": "The agent should research dos_files.cpp, explain the DOS_File base class and localFile implementation, and explain how DOS_OpenFile bridges the guest path to the native host OS.",
+      "files": []
+    }
+  ]
+}
