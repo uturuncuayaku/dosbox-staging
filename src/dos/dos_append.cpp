@@ -348,6 +348,11 @@ bool MultiplexHandler()
 	// MS-DOS 3.3+ Installation Check: returns AL=0xFF to signal that APPEND
 	// is installed in memory.
 	case 0x00: reg_al = 0xFF; return true;
+	case 0x01:
+		// MS-DOS 4.0 APPEND 1.0 legacy check.
+		// MS-DOS aborted the program, but we silently log and succeed to avoid breaking legacy checks.
+		LOG_MSG("APPEND: Caught legacy APPEND 1.0 Directory Pointer query (AX=B701h)");
+		return true;
 	case 0x02:
 		// MS-DOS 4.0 APPEND.ASM returns AX=FFFFh here.
 		// This signals "I am MS-DOS APPEND, not IBM PC Network APPEND."
@@ -383,6 +388,30 @@ bool MultiplexHandler()
 		reg_dl = dos.version.major;
 		reg_dh = dos.version.minor;
 		return true;
+	case 0x11: {
+		// TrueName Support: Resolves ASCIIZ filename from DS:DX via APPEND
+		// and canonicalizes into buffer at ES:DI
+		std::string resolved = {};
+		std::string request = {};
+
+		// Read ASCIIZ from DS:DX
+		PhysPt src = SegPhys(ds) + reg_dx;
+		while (true) {
+			uint8_t c = mem_readb(src++);
+			if (c == 0 || request.length() > 255) break;
+			request += static_cast<char>(c);
+		}
+
+		if (find_absolute_path(request.c_str(), resolved)) {
+			// Write resolved path to ES:DI
+			PhysPt dst = SegPhys(es) + reg_di;
+			for (char c : resolved) {
+				mem_writeb(dst++, static_cast<uint8_t>(c));
+			}
+			mem_writeb(dst, 0); // null terminator
+		}
+		return true;
+	}
 	}
 
 	return false;

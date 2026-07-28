@@ -620,16 +620,16 @@ TEST_F(DosAppendTest, MultiplexTopViewSync)
 	EXPECT_TRUE(handled);
 }
 
-TEST_F(DosAppendTest, MultiplexLegacyAndTrueNameIgnored)
+TEST_F(DosAppendTest, MultiplexLegacyAndTrueNameSupported)
 {
-	// Subfunctions 01h (legacy APPEND 1.0) and 11h (TrueName) are omitted per MS-DOS 4.0 compatibility decision
+	// Subfunctions 01h (legacy APPEND 1.0) and 11h (TrueName) are now supported
 	reg_ah = 0xB7;
 	reg_al = 0x01;
-	EXPECT_FALSE(dos_append::MultiplexHandler());
+	EXPECT_TRUE(dos_append::MultiplexHandler());
 
 	reg_ah = 0xB7;
 	reg_al = 0x11;
-	EXPECT_FALSE(dos_append::MultiplexHandler());
+	EXPECT_TRUE(dos_append::MultiplexHandler());
 }
 
 TEST_F(DosAppendTest, EnvModeExternalSetAppend)
