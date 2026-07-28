@@ -13,18 +13,11 @@ When passing resolved strings (like executable paths) into internal emulator fun
 *   Do not accept `char*` if the function does not need to mutate the string.
 *   This guarantees that memory cannot be accidentally corrupted or truncated during process setup.
 
-## 3. Recursion Guards (RAII)
-Because subsystem hooks intercept DOS file system calls but must also *use* the file system to verify files, infinite recursion is a severe threat.
-*   You must implement a boolean guard (e.g., `in_recursion` or `currently_resolving`).
-*   **DO NOT** manually toggle this boolean at the start and end of the function. If an early return or exception occurs, the emulator will remain permanently locked.
-*   **DO:** Use the **RAII** pattern. Create a struct that sets the flag to `true` on construction and `false` on destruction.
-    ```cpp
-    struct RecursionGuard {
-        bool& flag;
-        RecursionGuard(bool& f) : flag(f) { flag = true; }
-        ~RecursionGuard() { flag = false; }
-    };
-    ```
+## 3. State Management (RAII)
+Never manually manage boolean state flags, system locks, or resources that must be reset at the end of a function scope. If an early return or exception occurs, manual toggles will fail and leave the emulator in a corrupted state.
+*   **DO NOT:** Manually toggle states (e.g., `flag = true; ... return; ... flag = false;`).
+*   **DO:** Use the **RAII** (Resource Acquisition Is Initialization) pattern. 
+*   Use a local struct or class whose constructor acquires the state/resource and whose destructor guarantees cleanup when it goes out of scope, ensuring complete safety even with early returns.
 
 ## 4. Transactional Atomicity (Parsers)
 When writing shell commands (e.g., parsing `APPEND /X:ON =C:\Dir`), ensure the global state is not corrupted by a malformed command.
