@@ -23,6 +23,14 @@ You have access to highly detailed reference files. Read them using the `view_fi
    - Read this when handling recursive DOS file system calls.
    - Read this to understand the project's strict rules against C-style pointer arithmetic, the mandatory use of RAII, and transactional atomicity.
 
+3. **Logging & Loguru** (`.agents/skills/dosbox-expert/references/logging.md`)
+   - Read this to understand how to use `LOG_MSG`, `LOG_DEBUG`, etc.
+   - Read this to learn how to dynamically manipulate the Loguru preamble on-the-fly.
+
+4. **Testing Framework** (`.agents/skills/dosbox-expert/references/testing.md`)
+   - Read this before writing or modifying Google Tests (GTest) for DOSBox-Staging.
+   - Read this to understand the strict requirement of testing observable behavior over internal state.
+
 ## General Workflow
 
 1. Identify which component you are modifying (Shell command, DOS API hook, hardware emulation).
