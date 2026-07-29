@@ -4,6 +4,7 @@
 
 #include "dos/programs.h"
 
+#include "programs/append.h"
 #include "programs/attrib.h"
 #include "programs/autotype.h"
 #include "programs/boot.h"
@@ -59,6 +60,7 @@ void DOS_SetupPrograms()
 	VFILE_GetPathZDrive(path, dirname);
 	VFILE_RegisterZDrive(path);
 
+	PROGRAMS_MakeFile("APPEND.EXE", ProgramCreate<APPEND>);
 	PROGRAMS_MakeFile("ATTRIB.COM", ProgramCreate<ATTRIB>);
 	PROGRAMS_MakeFile("AUTOTYPE.COM", ProgramCreate<AUTOTYPE>);
 #if C_DEBUGGER
