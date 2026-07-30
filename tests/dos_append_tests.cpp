@@ -140,6 +140,32 @@ TEST_F(DosAppendTest, ParserDuplicates)
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\ONE;C:\\ONE;C:\\TWO");
 }
 
+// Requirement: Verify option switches are stripped from directory list parsing. Target: APPEND::Run(), parse_options()
+TEST_F(DosAppendTest, ParserSwitches)
+{
+	DOS_MakeDir("C:\\DIR");
+	auto* cmd = new CommandLine("APPEND", "/X:ON /PATH:OFF C:\\DIR /X");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DIR");
+}
+
+// Requirement: Verify /X:ON and /PATH:OFF flags set corresponding subsystem flags. Target: dos_append::SetFlags(), IsExecOn(), IsPathOverrideOn()
+TEST_F(DosAppendTest, ParserFlags)
+{
+	DOS_MakeDir("C:\\DATA");
+	auto* cmd = new CommandLine("APPEND", "/X:ON /PATH:OFF C:\\DATA");
+	APPEND prog;
+	prog.cmd = cmd;
+	prog.Run();
+
+	EXPECT_TRUE(dos_append::IsExecOn());
+	EXPECT_FALSE(dos_append::IsPathOverrideOn());
+	// We didn't pass /E, so list should be saved normally.
+	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DATA");
+}
+
 // Requirement: Verify whitespace and surrounding quotes are trimmed from paths. Target: dos_append::ValidateDirectories()
 TEST_F(DosAppendTest, ParserWhitespaceAndQuotes)
 {
@@ -261,6 +287,60 @@ TEST_F(DosAppendTest, ResolveNameOrderingAndNormalization)
 	std::string out_path;
 	EXPECT_TRUE(dos_append::find_absolute_path("FILE.TXT", out_path));
 	EXPECT_EQ(out_path, "C:\\ONE\\FILE.TXT");
+}
+
+// Requirement: Verify /PATH:ON searches APPEND list even when path is specified, /PATH:OFF bypasses. Target: dos_append::find_absolute_path(), SetFlags()
+TEST_F(DosAppendTest, PathOverride)
+{
+	DOS_MakeDir("C:\\DIR");
+	uint16_t entry;
+	DOS_CreateFile("C:\\DIR\\README.TXT", 0, &entry);
+	DOS_CloseFile(entry);
+
+	dos_append::SetDirectories("C:\\DIR");
+
+	std::string out_path;
+
+	// By default, path override is true in DOS 4.0+.
+	// Even if we provide an absolute path to a missing file, it should search APPEND!
+	dos_append::SetFlags(false, true, false);
+	EXPECT_TRUE(dos_append::find_absolute_path("C:\\OTHER\\README.TXT", out_path));
+	EXPECT_EQ(out_path, "C:\\DIR\\README.TXT");
+
+	// Disable path override
+	dos_append::SetFlags(false, false, false);
+	EXPECT_FALSE(dos_append::find_absolute_path("C:\\OTHER\\README.TXT", out_path));
+}
+
+// Requirement: Verify /PATH:ON resolves relative, absolute, dot-segment, and slash-mixed inputs. Target: dos_append::find_absolute_path()
+TEST_F(DosAppendTest, PathOverrideFuzzingGeometries)
+{
+	// Setup target file in appended directory
+	DOS_MakeDir("C:\\APPEND_LIB");
+	uint16_t entry;
+	DOS_CreateFile("C:\\APPEND_LIB\\TARGET.TXT", 0, &entry);
+	DOS_CloseFile(entry);
+
+	dos_append::SetDirectories("C:\\APPEND_LIB");
+	dos_append::SetFlags(false, true, false); // Enable /PATH:ON
+
+	std::string out_path;
+
+	// 1. Relative path input
+	EXPECT_TRUE(dos_append::find_absolute_path("..\\SUBDIR\\TARGET.TXT", out_path));
+	EXPECT_EQ(out_path, "C:\\APPEND_LIB\\TARGET.TXT");
+
+	// 2. Absolute path input
+	EXPECT_TRUE(dos_append::find_absolute_path("D:\\OTHER\\DIR\\TARGET.TXT", out_path));
+	EXPECT_EQ(out_path, "C:\\APPEND_LIB\\TARGET.TXT");
+
+	// 3. Mixed slash styles
+	EXPECT_TRUE(dos_append::find_absolute_path("D:/OTHER/DIR\\TARGET.TXT", out_path));
+	EXPECT_EQ(out_path, "C:\\APPEND_LIB\\TARGET.TXT");
+
+	// 4. Dot segment input
+	EXPECT_TRUE(dos_append::find_absolute_path("C:\\DIR\\.\\..\\TARGET.TXT", out_path));
+	EXPECT_EQ(out_path, "C:\\APPEND_LIB\\TARGET.TXT");
 }
 
 // ================================================================================

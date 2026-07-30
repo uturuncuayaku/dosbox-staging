@@ -15,14 +15,15 @@ namespace {
 
 struct AppendOptions {
 	std::optional<bool> exec{};
+	std::optional<bool> pathOverride{};
 
 	bool changed() const
 	{
-		return exec.has_value();
+		return exec.has_value() || pathOverride.has_value();
 	}
 };
 
-// Parse /X, /X:ON/OFF options from the command line
+// Parse /X, /X:ON/OFF, /PATH:ON/OFF options from the command line
 AppendOptions parse_options(CommandLine* cmd)
 {
 	AppendOptions options;
@@ -37,6 +38,15 @@ AppendOptions parse_options(CommandLine* cmd)
 		options.exec = false;
 	}
 
+	const bool path_on  = cmd->FindExistRemoveAll("/PATH:ON");
+	const bool path_off = cmd->FindExistRemoveAll("/PATH:OFF");
+
+	if (path_on) {
+		options.pathOverride = true;
+	} else if (path_off) {
+		options.pathOverride = false;
+	}
+
 	return options;
 }
 
@@ -46,8 +56,9 @@ void apply_option_updates(const AppendOptions& options)
 	if (!options.changed()) {
 		return;
 	}
-	bool finalExec = options.exec.value_or(dos_append::IsExecOn());
-	dos_append::SetFlags(dos_append::IsEnvOn(), dos_append::IsPathOverrideOn(), finalExec);
+	bool finalPathOn = options.pathOverride.value_or(dos_append::IsPathOverrideOn());
+	bool finalExec   = options.exec.value_or(dos_append::IsExecOn());
+	dos_append::SetFlags(dos_append::IsEnvOn(), finalPathOn, finalExec);
 }
 
 } // namespace
@@ -125,13 +136,15 @@ void APPEND::AddMessages()
 	        "\n"
 	        "Usage:\n"
 	        "  [color=light-green]append[reset] [color=light-cyan]DIR[reset][[;[color=light-cyan]DIR[reset]]...]\n"
-	        "  [color=light-green]append[reset] [/X[:ON|:OFF]]\n"
+	        "  [color=light-green]append[reset] [/X[:ON|:OFF]] [/PATH:ON|/PATH:OFF]\n"
 	        "  [color=light-green]append[reset] ;\n"
 	        "\n"
 	        "Parameters:\n"
 	        "  [color=light-cyan]DIR[reset]  directory to add to the search list\n"
 	        "  /X:ON  enable executable search in APPEND directories\n"
 	        "  /X:OFF disable executable search in APPEND directories\n"
+	        "  /PATH:ON  search APPEND directories even if path specified\n"
+	        "  /PATH:OFF search APPEND directories only if no path specified\n"
 	        "  ;    clear the directory list\n"
 	        "\n"
 	        "Notes:\n"
@@ -141,7 +154,7 @@ void APPEND::AddMessages()
 	        "\n"
 	        "Examples:\n"
 	        "  [color=light-green]append[reset] [color=light-cyan]C:\\DATA[reset]            ; search C:\\DATA for files\n"
-	        "  [color=light-green]append[reset] /X:ON              ; enable executable search\n"
+	        "  [color=light-green]append[reset] /PATH:OFF          ; disable search when path specified\n"
 	        "  [color=light-green]append[reset] ;                  ; clear the list\n");
 
 	MSG_Add("PROGRAM_APPEND_NO_DIRS", "No APPEND directories.");
