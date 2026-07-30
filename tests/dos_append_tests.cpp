@@ -721,4 +721,155 @@ TEST_F(DosAppendTest, FindFirstWildcardResolution)
 	EXPECT_EQ(res.name, "README.TXT");
 }
 
+// ================================================================================
+// INTEGRATION TESTS: /E Environment Variable Synchronization
+// ================================================================================
+
+// Requirement: Verify /E mode discovers external environment variable edits dynamically. Target: dos_append::GetDirectories(), IsEnvOn()
+TEST_F(DosAppendTest, EnvModeExternalSetAppend)
+{
+	dos_append::SetFlags(true, true, false);
+	dos_append::SetDirectories("C:\\DIR");
+
+	// Simulate user/batch file modifying the shell environment directly
+	if (auto shell = DOS_GetFirstShell()) {
+		shell->SetEnv("APPEND", "C:\\DIR;C:\\OTHER");
+	} else if (dos.psp() != 0) {
+		DOS_PSP(dos.psp()).SetEnvironmentValue("APPEND", "C:\\DIR;C:\\OTHER");
+	}
+
+	// Verify GetDirectories() discovers the external environment change
+	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DIR;C:\\OTHER");
+
+	// Invoke B704h and verify the returned DOS-memory string reflects the change on demand
+	reg_ah       = 0xB7;
+	reg_al       = 0x04;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+
+	char buf[128] = {};
+	MEM_StrCopy(SegPhys(es) + reg_di, buf, sizeof(buf));
+	EXPECT_EQ(std::string(buf), "C:\\DIR;C:\\OTHER");
+}
+
+// Requirement: Verify /E mode synchronizes directory list changes and clears cleanly. Target: dos_append::SetDirectories(), IsEnvOn()
+TEST_F(DosAppendTest, EnvModeSyncAndClear)
+{
+	dos_append::SetFlags(true, true, false);
+	dos_append::SetDirectories("C:\\DIR");
+	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DIR");
+
+	reg_ah       = 0xB7;
+	reg_al       = 0x04;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+
+	char buf[128] = {};
+	MEM_StrCopy(SegPhys(es) + reg_di, buf, sizeof(buf));
+	EXPECT_EQ(std::string(buf), "C:\\DIR");
+
+	dos_append::SetDirectories("");
+	EXPECT_EQ(dos_append::GetDirectories(), "");
+	EXPECT_FALSE(dos_append::IsEnabled());
+}
+
+// Requirement: Verify B707h disable state overrides active directory list in /E mode. Target: dos_append::MultiplexHandler(), IsEnabled()
+TEST_F(DosAppendTest, B707hDisableOverride)
+{
+	dos_append::SetFlags(true, true, false);
+	dos_append::SetDirectories("C:\\DIR");
+	EXPECT_TRUE(dos_append::IsEnabled());
+
+	reg_ah       = 0xB7;
+	reg_al       = 0x07;
+	reg_bx       = 0x0000;
+	bool handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+	EXPECT_FALSE(dos_append::IsEnabled());
+
+	reg_bx = 0x0001;
+	dos_append::MultiplexHandler();
+	EXPECT_TRUE(dos_append::IsEnabled());
+}
+
+// ================================================================================
+// UNIT TESTS: Option Permutations and Illegal Switch Handling
+// ================================================================================
+
+// Requirement: Verify relative option ordering of orthogonal switches has no effect on final state. Target: APPEND::Run(), parse_options()
+TEST_F(DosAppendTest, ParserFlagsPermutations)
+{
+	DOS_MakeDir("C:\\DATA");
+
+	const std::vector<std::string> permutations = {
+		"/X:ON /PATH:OFF /E C:\\DATA",
+		"/X:ON /E /PATH:OFF C:\\DATA",
+		"/PATH:OFF /X:ON /E C:\\DATA",
+		"/PATH:OFF /E /X:ON C:\\DATA",
+		"/E /X:ON /PATH:OFF C:\\DATA",
+		"/E /PATH:OFF /X:ON C:\\DATA"
+	};
+
+	for (const auto& cmdline : permutations) {
+		// Reset state before running each permutation
+		dos_append::SetDirectories("");
+		dos_append::SetFlags(false, true, false);
+
+		auto* cmd = new CommandLine("APPEND", cmdline);
+		APPEND prog;
+		prog.cmd = cmd;
+		prog.Run();
+
+		EXPECT_TRUE(dos_append::IsExecOn());
+		EXPECT_FALSE(dos_append::IsPathOverrideOn());
+		EXPECT_TRUE(dos_append::IsEnvOn());
+		EXPECT_EQ(dos_append::GetDirectories(), "C:\\DATA");
+	}
+}
+
+// Requirement: Verify illegal/unrecognized switch inputs abort command execution without side-effects. Target: APPEND::Run(), parse_options()
+TEST_F(DosAppendTest, ParserIllegalSwitchAborts)
+{
+	// Setup initial good state
+	DOS_MakeDir("C:\\GOOD");
+	DOS_MakeDir("C:\\DATA");
+	dos_append::SetDirectories("C:\\GOOD");
+	dos_append::SetFlags(false, true, false);
+
+	// Case 1: Purely invalid switch value
+	{
+		auto* cmd = new CommandLine("APPEND", "/X:INVALID C:\\DATA");
+		APPEND prog;
+		prog.cmd = cmd;
+		prog.Run();
+
+		// Should NOT change directories or exec option
+		EXPECT_EQ(dos_append::GetDirectories(), "C:\\GOOD");
+		EXPECT_FALSE(dos_append::IsExecOn());
+	}
+
+	// Case 2: Mixed valid switch and invalid switch
+	{
+		auto* cmd = new CommandLine("APPEND", "/X:ON /INVALID C:\\DATA");
+		APPEND prog;
+		prog.cmd = cmd;
+		prog.Run();
+
+		// Should NOT apply /X:ON and should NOT update directories
+		EXPECT_EQ(dos_append::GetDirectories(), "C:\\GOOD");
+		EXPECT_FALSE(dos_append::IsExecOn());
+	}
+
+	// Case 3: Conflicting format switch
+	{
+		auto* cmd = new CommandLine("APPEND", "/X:ON:OFF C:\\DATA");
+		APPEND prog;
+		prog.cmd = cmd;
+		prog.Run();
+
+		EXPECT_EQ(dos_append::GetDirectories(), "C:\\GOOD");
+		EXPECT_FALSE(dos_append::IsExecOn());
+	}
+}
+
 } // namespace

@@ -15,15 +15,16 @@ namespace {
 
 struct AppendOptions {
 	std::optional<bool> exec{};
+	bool envOn{false};
 	std::optional<bool> pathOverride{};
 
 	bool changed() const
 	{
-		return exec.has_value() || pathOverride.has_value();
+		return exec.has_value() || envOn || pathOverride.has_value();
 	}
 };
 
-// Parse /X, /X:ON/OFF, /PATH:ON/OFF options from the command line
+// Parse /X, /E, /PATH:ON/OFF options from the command line
 AppendOptions parse_options(CommandLine* cmd)
 {
 	AppendOptions options;
@@ -37,6 +38,8 @@ AppendOptions parse_options(CommandLine* cmd)
 	} else if (x_off) {
 		options.exec = false;
 	}
+
+	options.envOn = cmd->FindExistRemoveAll("/E");
 
 	const bool path_on  = cmd->FindExistRemoveAll("/PATH:ON");
 	const bool path_off = cmd->FindExistRemoveAll("/PATH:OFF");
@@ -56,9 +59,10 @@ void apply_option_updates(const AppendOptions& options)
 	if (!options.changed()) {
 		return;
 	}
+	bool finalEnv    = dos_append::IsEnvOn() || options.envOn;
 	bool finalPathOn = options.pathOverride.value_or(dos_append::IsPathOverrideOn());
 	bool finalExec   = options.exec.value_or(dos_append::IsExecOn());
-	dos_append::SetFlags(dos_append::IsEnvOn(), finalPathOn, finalExec);
+	dos_append::SetFlags(finalEnv, finalPathOn, finalExec);
 }
 
 } // namespace
@@ -136,7 +140,7 @@ void APPEND::AddMessages()
 	        "\n"
 	        "Usage:\n"
 	        "  [color=light-green]append[reset] [color=light-cyan]DIR[reset][[;[color=light-cyan]DIR[reset]]...]\n"
-	        "  [color=light-green]append[reset] [/X[:ON|:OFF]] [/PATH:ON|/PATH:OFF]\n"
+	        "  [color=light-green]append[reset] [/X[:ON|:OFF]] [/PATH:ON|/PATH:OFF] [/E]\n"
 	        "  [color=light-green]append[reset] ;\n"
 	        "\n"
 	        "Parameters:\n"
@@ -145,6 +149,7 @@ void APPEND::AddMessages()
 	        "  /X:OFF disable executable search in APPEND directories\n"
 	        "  /PATH:ON  search APPEND directories even if path specified\n"
 	        "  /PATH:OFF search APPEND directories only if no path specified\n"
+	        "  /E     store directory list in DOS environment variable\n"
 	        "  ;    clear the directory list\n"
 	        "\n"
 	        "Notes:\n"
@@ -154,7 +159,7 @@ void APPEND::AddMessages()
 	        "\n"
 	        "Examples:\n"
 	        "  [color=light-green]append[reset] [color=light-cyan]C:\\DATA[reset]            ; search C:\\DATA for files\n"
-	        "  [color=light-green]append[reset] /PATH:OFF          ; disable search when path specified\n"
+	        "  [color=light-green]append[reset] /E                 ; store APPEND in environment\n"
 	        "  [color=light-green]append[reset] ;                  ; clear the list\n");
 
 	MSG_Add("PROGRAM_APPEND_NO_DIRS", "No APPEND directories.");
