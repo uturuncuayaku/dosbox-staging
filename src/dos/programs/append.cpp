@@ -9,6 +9,7 @@
 
 #include "dos/dos_append.h"
 #include "misc/messages.h"
+#include "shell/shell.h"
 
 void APPEND::ShowCurrentState()
 {
@@ -31,6 +32,14 @@ void APPEND::Run()
 {
 	if (HelpRequested()) {
 		WriteOut(MSG_Get("PROGRAM_APPEND_HELP_LONG"));
+		return;
+	}
+
+	// Reject unrecognized switches before processing anything
+	std::string invalid_switch;
+	if (cmd->FindStringBegin("/", invalid_switch)) {
+		invalid_switch = "/" + invalid_switch;
+		WriteOut(MSG_Get("SHELL_ILLEGAL_SWITCH"), invalid_switch.c_str());
 		return;
 	}
 
