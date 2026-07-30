@@ -618,4 +618,27 @@ TEST_F(DosAppendTest, ResolvePathLongHostDir)
 	DOS_CloseFile(open_handle);
 }
 
+// ================================================================================
+// INTEGRATION TESTS: /X Execution Search
+// ================================================================================
+
+// Requirement: Verify /X:ON enables wildcard directory searching in DOS_FindFirst. Target: DOS_FindFirst(), dos_append::IsExecOn()
+TEST_F(DosAppendTest, FindFirstWildcardResolution)
+{
+	dos_append::SetDirectories("C:\\DIR");
+
+	// Without /X:ON, FindFirst should fail for APPEND directories
+	dos_append::SetFlags(false, true, false);
+	EXPECT_FALSE(DOS_FindFirst("*.TXT", FatAttributeFlags::NotVolume));
+
+	// With /X:ON, FindFirst should resolve *.TXT in C:\\DIR (finding README.TXT)
+	dos_append::SetFlags(false, true, true);
+	EXPECT_TRUE(DOS_FindFirst("*.TXT", FatAttributeFlags::NotVolume));
+
+	DOS_DTA dta(dos.dta());
+	DOS_DTA::Result res = {};
+	dta.GetResult(res);
+	EXPECT_EQ(res.name, "README.TXT");
+}
+
 } // namespace
