@@ -720,6 +720,35 @@ TEST_F(DosAppendTest, FindFirstWildcardResolution)
 	DOS_DTA::Result res = {};
 	dta.GetResult(res);
 	EXPECT_EQ(res.name, "README.TXT");
+
+	// Negative wildcard tests: Ensure wildcards match specifically and don't match everything
+	EXPECT_TRUE(DOS_FindFirst("README.*", FatAttributeFlags::NotVolume));
+	EXPECT_FALSE(DOS_FindFirst("*.EXE", FatAttributeFlags::NotVolume));
+	EXPECT_FALSE(DOS_FindFirst("A*.TXT", FatAttributeFlags::NotVolume));
+}
+
+// Requirement: Verify /X:ON enables executable path lookup for files in APPEND directories. Target: dos_append::IsExecOn(), dos_append::find_absolute_path()
+TEST_F(DosAppendTest, ExecModeExecutionSearch)
+{
+	DOS_MakeDir("C:\\BIN");
+	uint16_t entry;
+	DOS_CreateFile("C:\\BIN\\RUN.EXE", 0, &entry);
+	DOS_CloseFile(entry);
+
+	dos_append::SetDirectories("C:\\BIN");
+
+	std::string resolved_path;
+
+	// /X:OFF (default): Search for executable in APPEND path should be skipped / fail
+	dos_append::SetFlags(false, true, false);
+	EXPECT_FALSE(dos_append::IsExecOn());
+	EXPECT_FALSE(dos_append::find_absolute_path("RUN.EXE", resolved_path));
+
+	// /X:ON: Executable search succeeds and resolves RUN.EXE from C:\BIN
+	dos_append::SetFlags(false, true, true);
+	EXPECT_TRUE(dos_append::IsExecOn());
+	EXPECT_TRUE(dos_append::find_absolute_path("RUN.EXE", resolved_path));
+	EXPECT_EQ(resolved_path, "C:\\BIN\\RUN.EXE");
 }
 
 // ================================================================================
