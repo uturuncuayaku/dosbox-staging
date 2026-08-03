@@ -314,7 +314,7 @@ TEST_F(DosAppendTest, PathOverride)
 }
 
 // Requirement: Verify /PATH:ON resolves relative, absolute, dot-segment, and slash-mixed inputs. Target: dos_append::find_absolute_path()
-TEST_F(DosAppendTest, PathOverrideFuzzingGeometries)
+TEST_F(DosAppendTest, PathOverrideVariants)
 {
 	// Setup target file in appended directory
 	DOS_MakeDir("C:\\APPEND_LIB");
@@ -516,6 +516,14 @@ TEST_F(DosAppendTest, MultiplexDirPointer)
 	EXPECT_EQ(read_back, "C:\\GAMES;D:\\DATA");
 
 	dos_append::SetDirectories("E:\\NEW");
+
+	// Re-query ES:DI via INT 2Fh AL=04h API contract
+	reg_ah  = 0xB7;
+	reg_al  = 0x04;
+	handled = dos_append::MultiplexHandler();
+	EXPECT_TRUE(handled);
+
+	dos_addr = (static_cast<PhysPt>(SegValue(es)) << 4) + reg_di;
 	read_back.clear();
 	for (size_t i = 0; i < 256; ++i) {
 		char c = static_cast<char>(
