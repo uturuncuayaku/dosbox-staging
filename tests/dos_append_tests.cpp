@@ -125,7 +125,8 @@ TEST_F(DosAppendTest, ParserTrailingSeparators)
 TEST_F(DosAppendTest, ParserEmptyClear)
 {
 	dos_append::SetDirectories(";");
-	EXPECT_EQ(dos_append::GetDirectories(), ";");
+	EXPECT_EQ(dos_append::GetDirectories(), "");
+	EXPECT_FALSE(dos_append::IsEnabled());
 }
 
 // Requirement: Verify duplicate directory entries in command string are preserved. Target: APPEND::Run(), dos_append::GetDirectories()
@@ -133,9 +134,9 @@ TEST_F(DosAppendTest, ParserDuplicates)
 {
 	DOS_MakeDir("C:\\ONE");
 	DOS_MakeDir("C:\\TWO");
-	auto* cmd = new CommandLine("APPEND", "C:\\ONE;C:\\ONE;C:\\TWO");
+	CommandLine cmd("APPEND", "C:\\ONE;C:\\ONE;C:\\TWO");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\ONE;C:\\ONE;C:\\TWO");
 }
@@ -144,9 +145,9 @@ TEST_F(DosAppendTest, ParserDuplicates)
 TEST_F(DosAppendTest, ParserSwitches)
 {
 	DOS_MakeDir("C:\\DIR");
-	auto* cmd = new CommandLine("APPEND", "/X:ON /PATH:OFF C:\\DIR /X");
+	CommandLine cmd("APPEND", "/X:ON /PATH:OFF C:\\DIR /X");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DIR");
 }
@@ -155,9 +156,9 @@ TEST_F(DosAppendTest, ParserSwitches)
 TEST_F(DosAppendTest, ParserFlags)
 {
 	DOS_MakeDir("C:\\DATA");
-	auto* cmd = new CommandLine("APPEND", "/X:ON /PATH:OFF C:\\DATA");
+	CommandLine cmd("APPEND", "/X:ON /PATH:OFF C:\\DATA");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 
 	EXPECT_TRUE(dos_append::IsExecOn());
@@ -172,9 +173,9 @@ TEST_F(DosAppendTest, ParserWhitespaceAndQuotes)
 	DOS_MakeDir("C:\\ONE");
 	DOS_MakeDir("C:\\TWO");
 	DOS_MakeDir("C:\\DIR1");
-	auto* cmd = new CommandLine("APPEND", " C:\\ONE ; \"C:\\DIR1\" ;  C:\\TWO ");
+	CommandLine cmd("APPEND", " C:\\ONE ; \"C:\\DIR1\" ;  C:\\TWO ");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\ONE;C:\\DIR1;C:\\TWO");
 }
@@ -184,9 +185,9 @@ TEST_F(DosAppendTest, ParserEmptyTokens)
 {
 	DOS_MakeDir("C:\\ONE");
 	DOS_MakeDir("C:\\TWO");
-	auto* cmd = new CommandLine("APPEND", "C:\\ONE;;;C:\\TWO;");
+	CommandLine cmd("APPEND", "C:\\ONE;;;C:\\TWO;");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\ONE;C:\\TWO");
 }
@@ -200,9 +201,9 @@ TEST_F(DosAppendTest, ParserAbsoluteExpansion)
 	DOS_SetDefaultDrive(2);
 	DOS_ChangeDir("TEST");
 
-	auto* cmd = new CommandLine("APPEND", "DATA");
+	CommandLine cmd("APPEND", "DATA");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\TEST\\DATA");
@@ -215,9 +216,9 @@ TEST_F(DosAppendTest, ParserInvalidPath)
 {
 	dos_append::SetDirectories("C:\\GOOD");
 
-	auto* cmd = new CommandLine("APPEND", "C:\\NONEXISTENT");
+	CommandLine cmd("APPEND", "C:\\NONEXISTENT");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\GOOD");
@@ -227,9 +228,9 @@ TEST_F(DosAppendTest, ParserInvalidPath)
 TEST_F(DosAppendTest, ParserEqualSign)
 {
 	DOS_MakeDir("C:\\DATA");
-	auto* cmd = new CommandLine("APPEND", "=C:\\DATA");
+	CommandLine cmd("APPEND", "=C:\\DATA");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DATA");
@@ -352,9 +353,9 @@ TEST_F(DosAppendTest, CommandSetDirectories)
 {
 	DOS_MakeDir("C:\\DATA");
 	DOS_MakeDir("C:\\MORE");
-	auto* cmd = new CommandLine("APPEND", "C:\\DATA;C:\\MORE");
+	CommandLine cmd("APPEND", "C:\\DATA;C:\\MORE");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 
 	EXPECT_EQ(dos_append::GetDirectories(), "C:\\DATA;C:\\MORE");
@@ -367,26 +368,26 @@ TEST_F(DosAppendTest, QAComprehensiveTestMatrix)
 	DOS_MakeDir("C:\\MORE");
 
 	{
-		auto* cmd = new CommandLine("APPEND", R"(  "C:\DATA"  ;  C:\MORE  )");
+		CommandLine cmd("APPEND", R"(  "C:\DATA"  ;  C:\MORE  )");
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 		EXPECT_EQ(dos_append::GetDirectories(), R"(C:\DATA;C:\MORE)");
 	}
 
 	{
-		auto* cmd = new CommandLine("APPEND", R"(;C:\DATA;)");
+		CommandLine cmd("APPEND", R"(;C:\DATA;)");
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 		EXPECT_EQ(dos_append::GetDirectories(), R"(C:\DATA)");
 	}
 
 	{
 		dos_append::SetDirectories(R"(C:\DATA)");
-		auto* cmd = new CommandLine("APPEND", R"(C:\DATA;Z:\NONEXISTENT)");
+		CommandLine cmd("APPEND", R"(C:\DATA;Z:\NONEXISTENT)");
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 		EXPECT_EQ(dos_append::GetDirectories(), R"(C:\DATA)");
 	}
@@ -815,9 +816,9 @@ TEST_F(DosAppendTest, ParserFlagsPermutations)
 		dos_append::SetDirectories("");
 		dos_append::SetFlags(false, true, false);
 
-		auto* cmd = new CommandLine("APPEND", cmdline);
+		CommandLine cmd("APPEND", cmdline);
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 
 		EXPECT_TRUE(dos_append::IsExecOn());
@@ -838,9 +839,9 @@ TEST_F(DosAppendTest, ParserIllegalSwitchAborts)
 
 	// Case 1: Purely invalid switch value
 	{
-		auto* cmd = new CommandLine("APPEND", "/X:INVALID C:\\DATA");
+		CommandLine cmd("APPEND", "/X:INVALID C:\\DATA");
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 
 		// Should NOT change directories or exec option
@@ -850,9 +851,9 @@ TEST_F(DosAppendTest, ParserIllegalSwitchAborts)
 
 	// Case 2: Mixed valid switch and invalid switch
 	{
-		auto* cmd = new CommandLine("APPEND", "/X:ON /INVALID C:\\DATA");
+		CommandLine cmd("APPEND", "/X:ON /INVALID C:\\DATA");
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 
 		// Should NOT apply /X:ON and should NOT update directories
@@ -862,9 +863,9 @@ TEST_F(DosAppendTest, ParserIllegalSwitchAborts)
 
 	// Case 3: Conflicting format switch
 	{
-		auto* cmd = new CommandLine("APPEND", "/X:ON:OFF C:\\DATA");
+		CommandLine cmd("APPEND", "/X:ON:OFF C:\\DATA");
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 
 		EXPECT_EQ(dos_append::GetDirectories(), "C:\\GOOD");
