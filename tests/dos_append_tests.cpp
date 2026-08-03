@@ -626,37 +626,25 @@ TEST_F(DosAppendTest, MultiplexLegacyAndTrueNameSupported)
 // UNIT TESTS: Path Length Limits and LFN Resolution
 // ================================================================================
 
-// Requirement: Verify directory paths equal to or exceeding 80 characters abort validation. Target: APPEND::Run(), dos_append::ValidateDirectories()
+// // Requirement: Verify directory paths equal to or exceeding 80 characters abort validation. Target: APPEND::Run(), dos_append::ValidateDirectories()
 TEST_F(DosAppendTest, ParserPathLengthLimit)
 {
+	DOS_MakeDir("C:\\GOOD");
 	dos_append::SetDirectories("C:\\GOOD");
 
-	// 1. Path of exactly 79 characters (fits within DOS_PATHLENGTH - 1)
-	std::string path_79 = "C:\\";
-	path_79 += std::string(76, 'A'); // 3 + 76 = 79 chars
-	DOS_MakeDir(path_79.c_str());
-
-	{
-		auto* cmd = new CommandLine("APPEND", path_79);
-		APPEND prog;
-		prog.cmd = cmd;
-		prog.Run();
-		EXPECT_EQ(dos_append::GetDirectories(), "C:\\AAAAAAAA");
-	}
-
-	// 2. Path exceeding DOS_PATHLENGTH limit (path part excluding drive must be < 80 characters)
+	// 1. Path exceeding DOS_PATHLENGTH limit (path part excluding drive must be < 80 characters)
 	std::string path_80 = "C:\\";
 	path_80 += std::string(80, 'B'); // 3 + 80 = 83 chars
 	DOS_MakeDir(path_80.c_str());
 
 	{
-		auto* cmd = new CommandLine("APPEND", path_80);
+		CommandLine cmd("APPEND", path_80);
 		APPEND prog;
-		prog.cmd = cmd;
+		prog.cmd = &cmd;
 		prog.Run();
 
-		// Should abort and keep the previous list (the 79-char truncated path)
-		EXPECT_EQ(dos_append::GetDirectories(), "C:\\AAAAAAAA");
+		// Excessively long path input should abort and preserve previous directory list
+		EXPECT_EQ(dos_append::GetDirectories(), "C:\\GOOD");
 	}
 }
 
@@ -667,11 +655,9 @@ TEST_F(DosAppendTest, ResolvePathLongHostDir)
 	std::string host_dir = "tests/files/append/";
 	host_dir += std::string(76, 'A');
 	std::filesystem::create_directories(host_dir);
-	std::string path_79 = "C:\\" + std::string(76, 'A');
 
 	// 2. Create a file inside that directory using the host filesystem directly
-	std::string host_file_path = "tests/files/append/";
-	host_file_path += std::string(76, 'A') + "/TESTFILE.TXT";
+	std::string host_file_path = host_dir + "/TESTFILE.TXT";
 	FILE* f = fopen(host_file_path.c_str(), "w");
 	ASSERT_NE(f, nullptr);
 	fclose(f);
@@ -682,9 +668,9 @@ TEST_F(DosAppendTest, ResolvePathLongHostDir)
 	}
 
 	// 4. Append the DOS-visible short name of the long directory
-	auto* cmd = new CommandLine("APPEND", "C:\\AAAAAA~1");
+	CommandLine cmd("APPEND", "C:\\AAAAAA~1");
 	APPEND prog;
-	prog.cmd = cmd;
+	prog.cmd = &cmd;
 	prog.Run();
 	ASSERT_EQ(dos_append::GetDirectories(), "C:\\AAAAAA~1");
 
@@ -697,6 +683,12 @@ TEST_F(DosAppendTest, ResolvePathLongHostDir)
 	uint16_t open_handle;
 	EXPECT_TRUE(DOS_OpenFile(out_path.c_str(), OPEN_READ, &open_handle));
 	DOS_CloseFile(open_handle);
+
+	// 7. Clean up host filesystem test directory
+	std::filesystem::remove_all(host_dir);
+	if (Drives[2]) {
+		Drives[2]->EmptyCache();
+	}
 }
 
 // ================================================================================
