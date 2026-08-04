@@ -1,9 +1,11 @@
+// SPDX-FileCopyrightText:  2026 Antigravity
 // SPDX-FileCopyrightText:  2020-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "dos/programs.h"
 
+#include "programs/append.h"
 #include "programs/attrib.h"
 #include "programs/autotype.h"
 #include "programs/boot.h"
@@ -59,6 +61,7 @@ void DOS_SetupPrograms()
 	VFILE_GetPathZDrive(path, dirname);
 	VFILE_RegisterZDrive(path);
 
+	PROGRAMS_MakeFile("APPEND.EXE", ProgramCreate<APPEND>);
 	PROGRAMS_MakeFile("ATTRIB.COM", ProgramCreate<ATTRIB>);
 	PROGRAMS_MakeFile("AUTOTYPE.COM", ProgramCreate<AUTOTYPE>);
 #if C_DEBUGGER

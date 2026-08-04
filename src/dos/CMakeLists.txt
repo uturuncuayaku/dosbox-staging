@@ -13,6 +13,7 @@ target_sources(dosboxcommon PRIVATE
   cdrom.cpp
   cdrom_image.cpp
   dos.cpp
+  dos_append.cpp
   dos_classes.cpp
   dos_code_page.cpp
   dos_devices.cpp
@@ -37,6 +38,7 @@ target_sources(dosboxcommon PRIVATE
   drives.cpp
   programs.cpp
 
+  programs/append.cpp
   programs/attrib.cpp
   programs/autotype.cpp
   programs/boot.cpp

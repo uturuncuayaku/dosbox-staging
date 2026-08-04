@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText:  2026 Antigravity
 // SPDX-FileCopyrightText:  2020-2026 The DOSBox Staging Team
 // SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
 // SPDX-License-Identifier: GPL-2.0-or-later
@@ -12,6 +13,7 @@
 #include <ctime>
 
 #include "dosbox.h"
+#include "dos_append.h"
 #include "dos_windows.h"
 #include "ints/bios.h"
 #include "hardware/memory.h"
@@ -617,6 +619,10 @@ bool DOS_FindFirst(const char* search, FatAttributeFlags attr, bool fcb_findfirs
 		return true;
 	}
 
+	if (dos_append::FindFirst(search, attr, fcb_findfirst)) {
+		return true;
+	}
+
 	return false;
 }
 
@@ -890,6 +896,14 @@ bool DOS_OpenFile(const char* name, uint8_t flags, uint16_t* entry, bool fcb)
 		if (!fcb) psp.SetFileHandle(*entry,handle);
 		return true;
 	} else {
+		// try APPEND directories before giving up
+		if (!dos_append::IsResolving() && dos_append::IsEnabled()) {
+			std::string absolute_path = {};
+			if (dos_append::find_absolute_path(name, absolute_path)) {
+				return DOS_OpenFile(absolute_path.c_str(), flags, entry, fcb);
+			}
+		}
+
 		//Test if file exists, but opened in read-write mode (and writeprotected)
 		if (((flags & 3) != OPEN_READ) &&
 		    Drives.at(drive)->FileExists(fullname)) {
@@ -983,9 +997,15 @@ bool DOS_UnlinkFile(const char* const name)
 
 bool DOS_GetFileAttr(const char* const name, FatAttributeFlags* attr)
 {
+	std::string append_path;
+	const char* actual_name = name;
+	if (dos_append::find_absolute_path(name, append_path)) {
+		actual_name = append_path.c_str();
+	}
+
 	char fullname[DOS_PATHLENGTH];
 	uint8_t drive;
-	if (!DOS_MakeName(name, fullname, &drive)) {
+	if (!DOS_MakeName(actual_name, fullname, &drive)) {
 		return false;
 	}
 
@@ -1000,9 +1020,15 @@ bool DOS_GetFileAttr(const char* const name, FatAttributeFlags* attr)
 
 bool DOS_SetFileAttr(const char* const name, FatAttributeFlags attr)
 {
+	std::string append_path;
+	const char* actual_name = name;
+	if (dos_append::find_absolute_path(name, append_path)) {
+		actual_name = append_path.c_str();
+	}
+
 	char fullname[DOS_PATHLENGTH];
 	uint8_t drive;
-	if (!DOS_MakeName(name, fullname, &drive))
+	if (!DOS_MakeName(actual_name, fullname, &drive))
 		return false;
 
 	const auto drive_ptr = Drives.at(drive);
